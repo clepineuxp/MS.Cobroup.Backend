@@ -1,16 +1,33 @@
+using System.Text.Json.Serialization;
+using Microsoft.EntityFrameworkCore;
+using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Core.Services;
 using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Interfaces.Services;
+using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
+using MS.Cobroup.Backend.Infrastructure.Persistence;
 using MS.Cobroup.Backend.Infrastructure.Routes;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
+var operationsConnectionString = builder.Configuration.GetConnectionString("OperationsDatabase")
+    ?? throw new InvalidOperationException("ConnectionStrings:OperationsDatabase is required.");
 
 builder.Services.AddHealthChecks();
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .AddJsonOptions(options =>
+        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<IAccessScopeAuthorizer, AccessScopeAuthorizer>();
 builder.Services.AddScoped<ListAccessibleRoutesService>();
+builder.Services.AddScoped<CustomerService>();
+builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
+builder.Services.AddDbContext<OperationsDbContext>(options =>
+    options.UseNpgsql(operationsConnectionString, postgres =>
+    {
+        postgres.MigrationsAssembly(typeof(OperationsDbContext).Assembly.FullName);
+        postgres.MigrationsHistoryTable("__EFMigrationsHistory", "operations");
+    }));
 builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirectoryClient>((services, client) =>
 {
     var configuration = services.GetRequiredService<IConfiguration>();

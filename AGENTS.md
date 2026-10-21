@@ -6,16 +6,17 @@
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
 - Documento maestro: `../cobroup.md/COBROUP.md` 1.0.5.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-3-configuracion-rutas`.
+- Rama requerida y activa: `feature/fase-4-clientes`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 3
-- Resultado: COMPLETADA
+- Fase: 4
+- Resultado: EN_CURSO
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 3 completas y 6 pendientes. Informe: `../cobroup.md/informe/avance.md`.
+- Línea base: 9 fases totales; 3 completas, 1 en curso y 5 pendientes. Informe: `../cobroup.md/informe/avance.md`.
+- Corte actual: dominio/API/persistencia de clientes implementados; build Release 0 warnings/errores; Core 16/16 e Infrastructure 5/5; migración `AddCustomerManagement` aplicada de forma idempotente.
 
 ## Historial cronológico (append-only)
 

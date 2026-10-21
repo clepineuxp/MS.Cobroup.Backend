@@ -2,7 +2,7 @@
 
 1. **Fase 2 — completada:** identidad y aislamiento tenant; autoridad central compartida por los cuatro repositorios.
 2. **Fase 3 — completada funcionalmente:** configuración y rutas con ownership administrativo y contrato operativo de lectura, sin base compartida. Commit final pendiente.
-3. **Fase 4 — pendiente:** clientes y alcance operativo; teléfonos, ubicaciones y cupos con pruebas AC-01/04/05/20.
+3. **Fase 4 — en curso:** clientes y alcance operativo; teléfonos, ubicaciones y cupos con pruebas AC-01/04/05/20.
 4. **Fase 5 — pendiente:** plantillas y excepciones; contratos versionados y aprobación ADMIN.
 5. **Fase 6 — pendiente:** préstamos y cronograma; cerrar ADR-003/004/005/007 y probar precisión/calendario.
 6. **Fase 7 — pendiente:** pagos, evidencias, agenda y mora; idempotencia, privacidad y conciliación.

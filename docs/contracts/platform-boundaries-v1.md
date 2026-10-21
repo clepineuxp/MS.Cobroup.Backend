@@ -18,3 +18,7 @@ Los errores usarán un sobre versionado con código estable, mensaje seguro, `tr
 ## Contrato de rutas v1
 
 `GET /api/operations/v1/routes` reenvía el bearer token al directorio administrativo y devuelve `id`, `name`, `description`, `accessAs`, `maxActiveCustomers` y `maxActiveLoans`. No acepta tenant ni usuario por parámetro. Los límites `null` significan sin límite configurado. Una dependencia administrativa no disponible produce `503`.
+
+## Contrato de clientes v1
+
+`GET|POST /api/operations/v1/customers` y `GET|PUT /api/operations/v1/customers/{id}` pertenecen exclusivamente al backend operativo. Tenant y rutas se derivan del token y del directorio administrativo. `Customer`, teléfonos y ubicaciones se almacenan en el esquema `operations`; el cupo de clientes activos se comprueba bajo bloqueo transaccional por ruta.
