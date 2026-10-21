@@ -1,0 +1,16 @@
+**/bin/
+**/obj/
+.vs/
+.idea/
+*.user
+*.suo
+TestResults/
+*.trx
+coverage/
+*.coverage*
+*.log
+.env
+.env.*
+!.env.example
+*.pfx
+*.key

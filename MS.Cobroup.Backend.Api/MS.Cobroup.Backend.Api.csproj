@@ -1,0 +1,15 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\MS.Cobroup.Backend.Core\MS.Cobroup.Backend.Core.csproj" />
+    <ProjectReference Include="..\MS.Cobroup.Backend.Infrastructure\MS.Cobroup.Backend.Infrastructure.csproj" />
+    <ProjectReference Include="..\MS.Cobroup.Backend.Shared\MS.Cobroup.Backend.Shared.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+</Project>

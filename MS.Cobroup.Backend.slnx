@@ -1,0 +1,11 @@
+<Solution>
+  <Folder Name="/tests/">
+    <Project Path="tests/MS.Cobroup.Backend.Core.Tests/MS.Cobroup.Backend.Core.Tests.csproj" />
+    <Project Path="tests/MS.Cobroup.Backend.Infrastructure.Tests/MS.Cobroup.Backend.Infrastructure.Tests.csproj" />
+  </Folder>
+  <Project Path="MS.Cobroup.Backend.Api/MS.Cobroup.Backend.Api.csproj" />
+  <Project Path="MS.Cobroup.Backend.Core/MS.Cobroup.Backend.Core.csproj" />
+  <Project Path="MS.Cobroup.Backend.Domain/MS.Cobroup.Backend.Domain.csproj" />
+  <Project Path="MS.Cobroup.Backend.Infrastructure/MS.Cobroup.Backend.Infrastructure.csproj" />
+  <Project Path="MS.Cobroup.Backend.Shared/MS.Cobroup.Backend.Shared.csproj" />
+</Solution>
