@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evidencias, conforme a `../cobroup.md/COBROUP.md` 1.0.1. En fase 1 solo se crea la base ejecutable.
+Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evidencias, conforme a `../cobroup.md/COBROUP.md` 1.0.4. Hasta fase 3 valida identidad y publica rutas autorizadas; los agregados operativos comienzan en la fase de clientes.
 
 ## Límites
 
@@ -18,7 +18,7 @@ Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evid
 
 - .NET 10 / C# 14, solución `.slnx`, sin `src/`.
 - Health check: `/health`.
-- Persistencia, proveedor de identidad y secretos: pendientes de ADR.
+- Identidad central validada y lectura contractual de rutas autorizadas: implementadas hasta fase 3. La persistencia operativa continúa diferida hasta clientes.
 - Contratos: [fronteras v1](../contracts/platform-boundaries-v1.md).
 - Decisiones: [fundación fase 1](../decisions/0001-phase-1-foundation.md).
 - Roadmap propuesto: [fases siguientes](../roadmap/phase-proposal.md).

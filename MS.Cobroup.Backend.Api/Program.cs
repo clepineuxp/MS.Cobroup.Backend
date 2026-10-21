@@ -1,5 +1,7 @@
 using MS.Cobroup.Backend.Core.Services;
+using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Interfaces.Services;
+using MS.Cobroup.Backend.Infrastructure.Routes;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
 
@@ -8,6 +10,15 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddHealthChecks();
 builder.Services.AddControllers();
 builder.Services.AddSingleton<IAccessScopeAuthorizer, AccessScopeAuthorizer>();
+builder.Services.AddScoped<ListAccessibleRoutesService>();
+builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirectoryClient>((services, client) =>
+{
+    var configuration = services.GetRequiredService<IConfiguration>();
+    var baseUrl = configuration["AdministrativeApi:BaseUrl"]
+        ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
+    client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
 builder.Services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
 builder.Services.AddAuthorization(options =>
 {
