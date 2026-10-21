@@ -67,6 +67,9 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<Guid>("UpdatedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<uint>("xmin")
                         .IsConcurrencyToken()
                         .ValueGeneratedOnAddOrUpdate()
@@ -80,6 +83,44 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.HasIndex("TenantId", "RouteId", "Status");
 
                     b.ToTable("customers", "operations");
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerAuditRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DetailsJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerId");
+
+                    b.HasIndex("TenantId", "OccurredAtUtc");
+
+                    b.HasIndex("TenantId", "CustomerId", "OccurredAtUtc");
+
+                    b.ToTable("customer_audit", "operations");
                 });
 
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerLocation", b =>
@@ -145,6 +186,15 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                         .IsUnique();
 
                     b.ToTable("customer_phones", "operations");
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerAuditRecord", b =>
+                {
+                    b.HasOne("MS.Cobroup.Backend.Domain.Customers.Customer", null)
+                        .WithMany()
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerLocation", b =>

@@ -35,6 +35,7 @@ public sealed class Customer
         Observations = NormalizeOptional(observations, nameof(observations), 1000);
         Status = CustomerStatus.Active;
         CreatedByUserId = createdByUserId;
+        UpdatedByUserId = createdByUserId;
         CreatedAtUtc = createdAtUtc;
         UpdatedAtUtc = createdAtUtc;
         ReplaceContacts(requestedPhones, requestedLocations);
@@ -57,6 +58,8 @@ public sealed class Customer
     public CustomerStatus Status { get; private set; }
 
     public Guid CreatedByUserId { get; private set; }
+
+    public Guid UpdatedByUserId { get; private set; }
 
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
@@ -98,11 +101,12 @@ public sealed class Customer
         CustomerStatus status,
         IReadOnlyCollection<CustomerPhoneValue> requestedPhones,
         IReadOnlyCollection<CustomerLocationValue> requestedLocations,
+        Guid updatedByUserId,
         DateTimeOffset updatedAtUtc)
     {
-        if (routeId == Guid.Empty)
+        if (routeId == Guid.Empty || updatedByUserId == Guid.Empty)
         {
-            throw new ArgumentException("A route is required.", nameof(routeId));
+            throw new ArgumentException("Route and updater are required.");
         }
 
         RouteId = routeId;
@@ -111,6 +115,7 @@ public sealed class Customer
         BusinessOrWorkName = NormalizeOptional(businessOrWorkName, nameof(businessOrWorkName), 160);
         Observations = NormalizeOptional(observations, nameof(observations), 1000);
         Status = status;
+        UpdatedByUserId = updatedByUserId;
         UpdatedAtUtc = updatedAtUtc;
         ReplaceContacts(requestedPhones, requestedLocations);
     }

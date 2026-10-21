@@ -66,6 +66,22 @@ public sealed class CustomerTests
             DateTimeOffset.UtcNow));
     }
 
+    [Fact]
+    public void Create_rejects_letters_in_phone_numbers()
+    {
+        Assert.Throws<ArgumentException>(() => Customer.Create(
+            Guid.NewGuid(),
+            Guid.NewGuid(),
+            "Ana",
+            "Pérez",
+            null,
+            null,
+            [new("abc3001112233", true)],
+            [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)],
+            Guid.NewGuid(),
+            DateTimeOffset.UtcNow));
+    }
+
     private static Customer CreateValid() => Customer.Create(
         Guid.NewGuid(),
         Guid.NewGuid(),

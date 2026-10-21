@@ -73,6 +73,7 @@ public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICusto
 
     public async Task<CustomerSaveOutcome> TryAddAsync(
         Customer customer,
+        CustomerAuditRecord auditRecord,
         int? maxActiveCustomers,
         CancellationToken cancellationToken)
     {
@@ -93,6 +94,7 @@ public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICusto
             }
 
             dbContext.Customers.Add(customer);
+            dbContext.CustomerAuditRecords.Add(auditRecord);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return CustomerSaveOutcome.Saved;
@@ -106,6 +108,7 @@ public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICusto
 
     public async Task<CustomerSaveOutcome> TryUpdateAsync(
         Customer customer,
+        CustomerAuditRecord auditRecord,
         Guid previousRouteId,
         CustomerStatus previousStatus,
         int? maxActiveCustomers,
@@ -130,6 +133,34 @@ public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICusto
                 return CustomerSaveOutcome.CapacityReached;
             }
 
+            var replacementPhones = customer.Phones.ToArray();
+            var replacementLocations = customer.Locations.ToArray();
+            foreach (var entry in dbContext.ChangeTracker
+                         .Entries<CustomerPhone>()
+                         .Where(entry => entry.Entity.CustomerId == customer.Id)
+                         .ToArray())
+            {
+                entry.State = EntityState.Detached;
+            }
+
+            foreach (var entry in dbContext.ChangeTracker
+                         .Entries<CustomerLocation>()
+                         .Where(entry => entry.Entity.CustomerId == customer.Id)
+                         .ToArray())
+            {
+                entry.State = EntityState.Detached;
+            }
+
+            await dbContext.CustomerPhones
+                .Where(phone => phone.CustomerId == customer.Id)
+                .ExecuteDeleteAsync(cancellationToken);
+            await dbContext.CustomerLocations
+                .Where(location => location.CustomerId == customer.Id)
+                .ExecuteDeleteAsync(cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            dbContext.CustomerPhones.AddRange(replacementPhones);
+            dbContext.CustomerLocations.AddRange(replacementLocations);
+            dbContext.CustomerAuditRecords.Add(auditRecord);
             await dbContext.SaveChangesAsync(cancellationToken);
             await transaction.CommitAsync(cancellationToken);
             return CustomerSaveOutcome.Saved;

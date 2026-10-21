@@ -17,11 +17,13 @@ public interface ICustomerRepository
 
     Task<CustomerSaveOutcome> TryAddAsync(
         Customer customer,
+        CustomerAuditRecord auditRecord,
         int? maxActiveCustomers,
         CancellationToken cancellationToken);
 
     Task<CustomerSaveOutcome> TryUpdateAsync(
         Customer customer,
+        CustomerAuditRecord auditRecord,
         Guid previousRouteId,
         CustomerStatus previousStatus,
         int? maxActiveCustomers,

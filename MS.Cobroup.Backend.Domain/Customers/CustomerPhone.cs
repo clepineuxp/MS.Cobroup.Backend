@@ -28,6 +28,15 @@ public sealed class CustomerPhone
     public static string Normalize(string value)
     {
         var trimmed = value?.Trim() ?? string.Empty;
+        if (trimmed.Where((character, index) =>
+                !char.IsDigit(character)
+                && character is not ' ' and not '-' and not '(' and not ')' and not '.'
+                && !(character == '+' && index == 0))
+            .Any())
+        {
+            throw new ArgumentException("A phone contains unsupported characters.", nameof(value));
+        }
+
         var normalized = string.Concat(trimmed.Where((character, index) =>
             char.IsDigit(character) || (character == '+' && index == 0)));
         var digitCount = normalized.Count(char.IsDigit);

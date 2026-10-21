@@ -11,6 +11,8 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
 
     public DbSet<CustomerLocation> CustomerLocations => Set<CustomerLocation>();
 
+    public DbSet<CustomerAuditRecord> CustomerAuditRecords => Set<CustomerAuditRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("operations");
@@ -57,6 +59,20 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property(location => location.Address).HasMaxLength(300);
             entity.Property(location => location.Source).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.HasIndex(location => location.CustomerId);
+        });
+
+        modelBuilder.Entity<CustomerAuditRecord>(entity =>
+        {
+            entity.ToTable("customer_audit");
+            entity.HasKey(record => record.Id);
+            entity.Property(record => record.Action).HasConversion<string>().HasMaxLength(40).IsRequired();
+            entity.Property(record => record.DetailsJson).HasColumnType("jsonb").IsRequired();
+            entity.HasIndex(record => new { record.TenantId, record.OccurredAtUtc });
+            entity.HasIndex(record => new { record.TenantId, record.CustomerId, record.OccurredAtUtc });
+            entity.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(record => record.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

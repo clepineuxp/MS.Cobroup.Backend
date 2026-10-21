@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Authorization;
 using MS.Cobroup.Backend.Domain.Customers;
@@ -102,7 +103,18 @@ public sealed class CustomerService(
             return CustomerResult.Invalid(exception.Message);
         }
 
-        var outcome = await repository.TryAddAsync(customer, route.MaxActiveCustomers, cancellationToken);
+        var auditRecord = CustomerAuditRecord.Create(
+            customer.TenantId,
+            customer.Id,
+            command.Actor.UserId,
+            CustomerAuditAction.Created,
+            SerializeAuditDetails(null, customer),
+            customer.CreatedAtUtc);
+        var outcome = await repository.TryAddAsync(
+            customer,
+            auditRecord,
+            route.MaxActiveCustomers,
+            cancellationToken);
         return outcome switch
         {
             CustomerSaveOutcome.Saved => CustomerResult.Created(ToDetails(customer)),
@@ -142,6 +154,8 @@ public sealed class CustomerService(
 
         var previousRouteId = customer.RouteId;
         var previousStatus = customer.Status;
+        var previousSnapshot = CustomerAuditSnapshot.From(customer);
+        var updatedAtUtc = DateTimeOffset.UtcNow;
         try
         {
             customer.Update(
@@ -159,15 +173,31 @@ public sealed class CustomerService(
                     item.Address,
                     item.IsPrimary,
                     item.Source)).ToArray(),
-                DateTimeOffset.UtcNow);
+                command.Actor.UserId,
+                updatedAtUtc);
         }
         catch (ArgumentException exception)
         {
             return CustomerResult.Invalid(exception.Message);
         }
 
+        var auditAction = (routeChanged, statusChanged) switch
+        {
+            (true, true) => CustomerAuditAction.TransferredAndStatusChanged,
+            (true, false) => CustomerAuditAction.Transferred,
+            (false, true) => CustomerAuditAction.StatusChanged,
+            _ => CustomerAuditAction.Updated
+        };
+        var auditRecord = CustomerAuditRecord.Create(
+            customer.TenantId,
+            customer.Id,
+            command.Actor.UserId,
+            auditAction,
+            SerializeAuditDetails(previousSnapshot, customer),
+            updatedAtUtc);
         var outcome = await repository.TryUpdateAsync(
             customer,
+            auditRecord,
             previousRouteId,
             previousStatus,
             targetRoute.MaxActiveCustomers,
@@ -224,4 +254,28 @@ public sealed class CustomerService(
             .ToArray(),
         customer.CreatedAtUtc,
         customer.UpdatedAtUtc);
+
+    private static string SerializeAuditDetails(CustomerAuditSnapshot? before, Customer after) =>
+        JsonSerializer.Serialize(new CustomerAuditChange(before, CustomerAuditSnapshot.From(after)));
+
+    private sealed record CustomerAuditChange(CustomerAuditSnapshot? Before, CustomerAuditSnapshot After);
+
+    private sealed record CustomerAuditSnapshot(
+        Guid RouteId,
+        CustomerStatus Status,
+        string FirstNames,
+        string LastNames,
+        string? BusinessOrWorkName,
+        int PhoneCount,
+        int LocationCount)
+    {
+        public static CustomerAuditSnapshot From(Customer customer) => new(
+            customer.RouteId,
+            customer.Status,
+            customer.FirstNames,
+            customer.LastNames,
+            customer.BusinessOrWorkName,
+            customer.Phones.Count,
+            customer.Locations.Count);
+    }
 }

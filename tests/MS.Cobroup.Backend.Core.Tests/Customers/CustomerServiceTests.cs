@@ -41,6 +41,8 @@ public sealed class CustomerServiceTests
         Assert.Equal(CustomerOutcome.Created, result.Outcome);
         Assert.Equal(fixture.RouteId, result.Customer!.RouteId);
         Assert.NotNull(fixture.Repository.SavedCustomer);
+        Assert.Equal(CustomerAuditAction.Created, fixture.Repository.SavedAudit?.Action);
+        Assert.Equal(fixture.Actor.UserId, fixture.Repository.SavedAudit?.ActorUserId);
     }
 
     [Fact]
@@ -67,6 +69,23 @@ public sealed class CustomerServiceTests
             default);
 
         Assert.Equal(CustomerOutcome.Forbidden, result.Outcome);
+    }
+
+    [Fact]
+    public async Task Update_records_route_transfer_with_the_actor()
+    {
+        var fixture = new Fixture(UserRole.Admin, includeSecondRoute: true);
+        fixture.Repository.Customer = fixture.CreateCustomer(fixture.RouteId);
+
+        var result = await fixture.Service.UpdateAsync(
+            fixture.UpdateCommand(fixture.Repository.Customer.Id, fixture.SecondRouteId),
+            default);
+
+        Assert.Equal(CustomerOutcome.Success, result.Outcome);
+        Assert.Equal(CustomerAuditAction.Transferred, fixture.Repository.SavedAudit?.Action);
+        Assert.Equal(fixture.Actor.UserId, fixture.Repository.SavedCustomer?.UpdatedByUserId);
+        Assert.Contains(fixture.RouteId.ToString(), fixture.Repository.SavedAudit?.DetailsJson);
+        Assert.Contains(fixture.SecondRouteId.ToString(), fixture.Repository.SavedAudit?.DetailsJson);
     }
 
     [Fact]
@@ -157,6 +176,8 @@ public sealed class CustomerServiceTests
 
         public Customer? SavedCustomer { get; private set; }
 
+        public CustomerAuditRecord? SavedAudit { get; private set; }
+
         public CustomerSaveOutcome NextSaveOutcome { get; set; } = CustomerSaveOutcome.Saved;
 
         public int? LastMaximum { get; private set; }
@@ -176,22 +197,26 @@ public sealed class CustomerServiceTests
 
         public Task<CustomerSaveOutcome> TryAddAsync(
             Customer customer,
+            CustomerAuditRecord auditRecord,
             int? maxActiveCustomers,
             CancellationToken cancellationToken)
         {
             SavedCustomer = customer;
+            SavedAudit = auditRecord;
             LastMaximum = maxActiveCustomers;
             return Task.FromResult(NextSaveOutcome);
         }
 
         public Task<CustomerSaveOutcome> TryUpdateAsync(
             Customer customer,
+            CustomerAuditRecord auditRecord,
             Guid previousRouteId,
             CustomerStatus previousStatus,
             int? maxActiveCustomers,
             CancellationToken cancellationToken)
         {
             SavedCustomer = customer;
+            SavedAudit = auditRecord;
             LastMaximum = maxActiveCustomers;
             return Task.FromResult(NextSaveOutcome);
         }

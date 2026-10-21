@@ -4,7 +4,7 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.0.5.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.0.7.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
 - Rama requerida y activa: `feature/fase-4-clientes`.
 - Prohibidos push, merge, tag y PR sin autorización.
@@ -12,11 +12,11 @@
 ## Estado actual
 
 - Fase: 4
-- Resultado: EN_CURSO
+- Resultado: COMPLETADA
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 3 completas, 1 en curso y 5 pendientes. Informe: `../cobroup.md/informe/avance.md`.
-- Corte actual: dominio/API/persistencia de clientes implementados; build Release 0 warnings/errores; Core 16/16 e Infrastructure 5/5; migración `AddCustomerManagement` aplicada de forma idempotente.
+- Línea base: 9 fases totales; 4 completas y 5 pendientes. Informe: `../cobroup.md/informe/avance.md`.
+- Corte actual: clientes tenant-safe con auditoría transaccional; build Release 0 warnings/errores; Core 18/18 e Infrastructure 9/9; migraciones aplicadas de forma idempotente.
 
 ## Historial cronológico (append-only)
 
@@ -73,3 +73,13 @@
 - Resiliencia: conserva `401/403`; timeout, red o fallo inesperado del propietario se presenta como `503`, nunca como lista vacía engañosa.
 - Validación: build Release 0 warnings/errores; Core 6/6 e Infrastructure 5/5; contrato extremo a extremo autenticado respondió 200.
 - Git: cambios de fase 3 sin commit; push, merge, tag y PR no autorizados.
+
+### 2026-10-21 — Cierre funcional de fase 4
+
+- Dominio: clientes por tenant/ruta, 1–6 teléfonos, 1–4 ubicaciones, principal única, origen manual/GPS, estado y validación estricta de teléfonos.
+- Seguridad: consulta y acceso directo filtrados por tenant y rutas devueltas por la autoridad administrativa; solo `Admin` traslada o cambia estado.
+- Persistencia: cupo de clientes activos serializado con advisory locks por ruta; auditoría atómica de creación, edición, traslado y estado con actor/fecha/antes/después.
+- Migraciones: `AddCustomerManagement`, `AddCustomerAudit` y `NormalizeCustomerAuditActor` aplicadas; segunda ejecución sin pendientes.
+- Pruebas reales: aislamiento cross-tenant aun compartiendo ruta, actualización de contactos sin colisión y dos altas concurrentes con cupo 1 producen exactamente un alta y un rechazo.
+- Validación: build Release 0 warnings/errores; Core 18/18, Infrastructure 9/9 e integración OIDC directa/fachada HTTP 200.
+- Git: commit de fase 4 autorizado; push, merge, tag y PR permanecen prohibidos.
