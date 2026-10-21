@@ -1,11 +1,13 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using MS.Cobroup.Backend.Core.Customers;
+using MS.Cobroup.Backend.Core.LoanTemplates;
 using MS.Cobroup.Backend.Core.Services;
 using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Interfaces.Services;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 using MS.Cobroup.Backend.Infrastructure.Persistence;
+using MS.Cobroup.Backend.Infrastructure.LoanTemplates;
 using MS.Cobroup.Backend.Infrastructure.Routes;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
@@ -20,6 +22,7 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<IAccessScopeAuthorizer, AccessScopeAuthorizer>();
 builder.Services.AddScoped<ListAccessibleRoutesService>();
+builder.Services.AddScoped<ListAvailableLoanTemplatesService>();
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
 builder.Services.AddDbContext<OperationsDbContext>(options =>
@@ -29,6 +32,14 @@ builder.Services.AddDbContext<OperationsDbContext>(options =>
         postgres.MigrationsHistoryTable("__EFMigrationsHistory", "operations");
     }));
 builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirectoryClient>((services, client) =>
+{
+    var configuration = services.GetRequiredService<IConfiguration>();
+    var baseUrl = configuration["AdministrativeApi:BaseUrl"]
+        ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
+    client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddHttpClient<IAdministrativeLoanTemplateDirectory, AdminLoanTemplateDirectoryClient>((services, client) =>
 {
     var configuration = services.GetRequiredService<IConfiguration>();
     var baseUrl = configuration["AdministrativeApi:BaseUrl"]
