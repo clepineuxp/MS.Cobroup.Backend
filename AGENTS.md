@@ -6,12 +6,12 @@
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
 - Documento maestro: `../cobroup.md/COBROUP.md` 1.0.1.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-1-inicializacion`.
-- Prohibidos commits, push y cambios fuera de fase 1 sin autorización.
+- Rama requerida y activa: `feature/fase-2-identidad-tenant`.
+- Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 1
+- Fase: 2
 - Resultado: COMPLETADA
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
@@ -43,3 +43,11 @@
 - Resultado: fase 1 validada; commit autorizado: SÍ, únicamente para el alcance acumulado de fase 1.
 - Operaciones no autorizadas: push, merge, tag y PR.
 - Siguiente rama prevista: `feature/fase-2-identidad-tenant`.
+
+### 2026-10-21 — Validación central de identidad, fase 2
+
+- Decisión: este servicio confía en la autoridad OIDC de `MS.Cobroup.BackendAdmin`; no guarda contraseñas ni emite tokens.
+- Implementación: validación remota de issuer y audiencia `cobroup-api`; política `tenant-user`; endpoint protegido `/api/v1/session/me`.
+- Validación: build sin warnings y pruebas 5/5.
+- Integración: validada contra la autoridad central ya migrada y provista con una organización y los tres roles base.
+- Git: commit de cierre de fase 2 autorizado por el usuario; sin push, merge, tag ni PR.
