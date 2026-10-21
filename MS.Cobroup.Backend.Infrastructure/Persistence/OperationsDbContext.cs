@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.LoanExceptions;
 using MS.Cobroup.Backend.Domain.Loans;
+using MS.Cobroup.Backend.Domain.Payments;
 
 namespace MS.Cobroup.Backend.Infrastructure.Persistence;
 
@@ -20,6 +21,12 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
     public DbSet<Loan> Loans => Set<Loan>();
 
     public DbSet<Installment> Installments => Set<Installment>();
+
+    public DbSet<Payment> Payments => Set<Payment>();
+
+    public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>();
+
+    public DbSet<PaymentEvidence> PaymentEvidences => Set<PaymentEvidence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -144,6 +151,52 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property(installment => installment.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.HasIndex(installment => new { installment.TenantId, installment.LoanId, installment.Number }).IsUnique();
             entity.HasIndex(installment => new { installment.TenantId, installment.DueDate, installment.Status });
+        });
+
+        modelBuilder.Entity<Payment>(entity =>
+        {
+            entity.ToTable("payments");
+            entity.HasKey(p => p.Id);
+            entity.Property(p => p.Amount).HasPrecision(18, 2).IsRequired();
+            entity.Property(p => p.PaymentMethodName).HasMaxLength(50).IsRequired();
+            entity.Property(p => p.Notes).HasMaxLength(500);
+            entity.Property(p => p.IdempotencyKey).HasMaxLength(100).IsRequired();
+            entity.HasIndex(p => new { p.TenantId, p.IdempotencyKey }).IsUnique();
+            entity.HasIndex(p => new { p.TenantId, p.RouteId, p.RegisteredAtUtc });
+            entity.HasIndex(p => new { p.TenantId, p.LoanId });
+            entity.HasOne<Loan>()
+                .WithMany()
+                .HasForeignKey(p => p.LoanId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(p => p.Allocations)
+                .WithOne()
+                .HasForeignKey(a => a.PaymentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.HasMany(p => p.Evidences)
+                .WithOne()
+                .HasForeignKey(e => e.PaymentId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Navigation(p => p.Allocations).UsePropertyAccessMode(PropertyAccessMode.Field);
+            entity.Navigation(p => p.Evidences).UsePropertyAccessMode(PropertyAccessMode.Field);
+        });
+
+        modelBuilder.Entity<PaymentAllocation>(entity =>
+        {
+            entity.ToTable("payment_allocations");
+            entity.HasKey(a => a.Id);
+            entity.Property(a => a.AmountAllocated).HasPrecision(18, 2).IsRequired();
+            entity.HasIndex(a => new { a.PaymentId, a.InstallmentId });
+        });
+
+        modelBuilder.Entity<PaymentEvidence>(entity =>
+        {
+            entity.ToTable("payment_evidences");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.FileName).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.ContentType).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.StoragePath).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.DeletionReason).HasMaxLength(500);
+            entity.HasIndex(e => new { e.TenantId, e.PaymentId, e.IsDeleted });
         });
     }
 }
