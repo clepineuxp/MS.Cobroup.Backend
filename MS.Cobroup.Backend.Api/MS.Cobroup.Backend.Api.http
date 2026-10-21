@@ -1,0 +1,5 @@
+@MS.Cobroup.Backend.Api_HostAddress = http://localhost:5081
+
+GET {{MS.Cobroup.Backend.Api_HostAddress}}/health
+
+###
