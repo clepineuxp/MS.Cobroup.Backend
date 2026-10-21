@@ -1,6 +1,8 @@
 # MS.Cobroup.Backend
 
-Microservicio operativo de COBROUP. Valida los access tokens emitidos por `MS.Cobroup.BackendAdmin`, exige contexto de organización y en fase 3 publica la lectura de rutas autorizadas sin duplicar su propiedad. Todavía no contiene CRUD de clientes ni lógica financiera.
+Microservicio operativo de COBROUP. Valida los access tokens emitidos por `MS.Cobroup.BackendAdmin`, exige contexto de organización y consume rutas autorizadas sin duplicar su propiedad. En fase 4 es la autoridad de clientes, teléfonos y ubicaciones; todavía no contiene lógica financiera.
+
+Clientes: `GET|POST /api/operations/v1/customers` y `GET|PUT /api/operations/v1/customers/{id}`. Todas las operaciones aplican tenant y alcance de ruta en servidor; el cupo activo se valida transaccionalmente.
 
 ## Requisitos
 
