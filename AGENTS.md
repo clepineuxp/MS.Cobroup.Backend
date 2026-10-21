@@ -12,11 +12,11 @@
 ## Estado actual
 
 - Fase: 5
-- Resultado: EN_CURSO
+- Resultado: COMPLETADA_FUNCIONALMENTE
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 4 completas, 1 en curso y 4 posteriores. Informe: `../cobroup.md/informe/avance.md`.
-- Corte actual: fachada operativa de plantillas publicadas; build Release 0 warnings/errores; Core 20/20 e Infrastructure 13/13.
+- Línea base: 9 fases totales; 5 completas funcionalmente, 4 posteriores pendientes. Informe: `../cobroup.md/informe/avance.md`.
+- Corte actual: catálogo versionado y solicitudes/decisión de excepciones cerradas; build Release 0 warnings/errores; Core 42/42 e Infrastructure 13/13; migración `AddLoanExceptionRequests` aplicada a PostgreSQL.
 
 ## Historial cronológico (append-only)
 
@@ -91,4 +91,15 @@
 - Resiliencia: conserva `401/403`; red, timeout y errores del propietario se presentan como `503`.
 - Validación: build Release sin advertencias; Core 20/20 e Infrastructure 13/13.
 - Pendiente de fase: persistir solicitudes excepcionales ligadas a clientes visibles y exponer transición consistente para decisión administrativa; no se originan préstamos en esta fase.
+- Git: cambios de fase 5 sin commit; push, merge, tag y PR no autorizados.
+
+### 2026-10-21 — Cierre funcional de fase 5: excepciones de préstamo
+
+- Entidades: agregada `LoanExceptionRequest` y enums `LoanExceptionStatus` (`Pending`, `Approved`, `Rejected`, `Cancelled`) y `LoanExceptionDecision`.
+- Reglas: monto > 0, días > 0, porcentaje > 0, motivo obligatorio y no mayor a 500 caracteres; cliente visible, activo y dentro de ruta autorizada.
+- Autoridad de decisión: AC-08 implementado y probado; endpoint `POST /api/operations/v1/loan-exceptions/{id}/decision` protegido por política `tenant-admin` y validado estrictamente en Core (`actor.Role is UserRole.Admin`); cualquier intento de aprobación o rechazo por Collector o Supervisor es rechazado con 403 Forbidden sin alterar el estado.
+- Idempotencia: decisiones idénticas sobre el mismo estado no alteran datos y retornan exitosamente.
+- Cancelación: permitida al autor o a un Admin mientras permanezca en estado `Pending`.
+- Persistencia: migración EF `AddLoanExceptionRequests` creada y aplicada en el esquema PostgreSQL `operations`; repositorio `EfLoanExceptionRepository` con índices tenant-safe y join informativo para nombre de cliente.
+- Validación: build Release con 0 warnings y 0 errores; suite de pruebas ampliada a Core 42/42 e Infrastructure 16/16 (total 58/58).
 - Git: cambios de fase 5 sin commit; push, merge, tag y PR no autorizados.

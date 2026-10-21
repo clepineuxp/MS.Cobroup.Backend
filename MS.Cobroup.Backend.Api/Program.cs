@@ -1,9 +1,11 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
 using MS.Cobroup.Backend.Core.Customers;
+using MS.Cobroup.Backend.Core.LoanExceptions;
 using MS.Cobroup.Backend.Core.LoanTemplates;
 using MS.Cobroup.Backend.Core.Services;
 using MS.Cobroup.Backend.Core.Routes;
+using MS.Cobroup.Backend.Domain.Authorization;
 using MS.Cobroup.Backend.Domain.Interfaces.Services;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 using MS.Cobroup.Backend.Infrastructure.Persistence;
@@ -24,7 +26,9 @@ builder.Services.AddSingleton<IAccessScopeAuthorizer, AccessScopeAuthorizer>();
 builder.Services.AddScoped<ListAccessibleRoutesService>();
 builder.Services.AddScoped<ListAvailableLoanTemplatesService>();
 builder.Services.AddScoped<CustomerService>();
+builder.Services.AddScoped<LoanExceptionService>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
+builder.Services.AddScoped<ILoanExceptionRepository, EfLoanExceptionRepository>();
 builder.Services.AddDbContext<OperationsDbContext>(options =>
     options.UseNpgsql(operationsConnectionString, postgres =>
     {
@@ -56,6 +60,14 @@ builder.Services.AddAuthorization(options =>
         policy.RequireAuthenticatedUser();
         policy.RequireClaim(OpenIddictConstants.Claims.Subject);
         policy.RequireClaim("organization_id");
+    });
+    options.AddPolicy("tenant-admin", policy =>
+    {
+        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.RequireAuthenticatedUser();
+        policy.RequireClaim(OpenIddictConstants.Claims.Subject);
+        policy.RequireClaim("organization_id");
+        policy.RequireRole(UserRole.Admin.ToString());
     });
 });
 builder.Services.AddOpenIddict().AddValidation(options =>
