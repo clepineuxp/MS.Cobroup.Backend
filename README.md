@@ -15,4 +15,4 @@ dotnet test MS.Cobroup.Backend.slnx --no-build
 dotnet run --project MS.Cobroup.Backend.Api --urls http://127.0.0.1:5081
 ```
 
-El endpoint técnico público es `GET /health`. `GET /api/v1/session/me` exige un bearer token válido con `sub`, audiencia `cobroup-api` y `organization_id`. El issuer se configura con `Identity__Issuer`.
+Los endpoints se exponen mediante controladores separados por responsabilidad. `GET /health` es público; `GET /api/v1/session/me` exige un bearer token válido con `sub`, audiencia `cobroup-api` y `organization_id`. El issuer se configura con `Identity__Issuer`.

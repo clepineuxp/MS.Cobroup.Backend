@@ -4,15 +4,15 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.0.1.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.0.2.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-2-identidad-tenant`.
+- Rama requerida y activa: `feature/fase-3-configuracion-rutas`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 2
-- Resultado: COMPLETADA
+- Fase: 3
+- Resultado: EN PROGRESO
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
 
@@ -51,3 +51,15 @@
 - Validación: build sin warnings y pruebas 5/5.
 - Integración: validada contra la autoridad central ya migrada y provista con una organización y los tres roles base.
 - Git: commit de cierre de fase 2 autorizado por el usuario; sin push, merge, tag ni PR.
+
+### 2026-10-21 — Inicio de fase 3
+
+- Rama creada para configuración y rutas.
+- El primer contrato se implementa en `MS.Cobroup.BackendAdmin`, autoridad de rutas y asignaciones. Este servicio operativo no incorpora todavía consumidores hasta estabilizar consultas y alcance por ruta.
+- Git: sin cambios funcionales de fase 3; push, merge, tag y PR no autorizados.
+
+### 2026-10-21 — Convención de controladores
+
+- `GET /health` y `GET /api/v1/session/me` fueron trasladados a `HealthController` y `SessionController`; `Program.cs` queda limitado a composición y middleware.
+- Regla establecida: cada responsabilidad HTTP futura tendrá un controlador propio en API.
+- Git: cambios sin commit; push, merge, tag y PR no autorizados.
