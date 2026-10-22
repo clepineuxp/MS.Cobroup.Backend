@@ -99,6 +99,12 @@ public sealed class LoanExceptionRequest
 
     public DateTimeOffset? CancelledAtUtc { get; private set; }
 
+    public bool IsConsumed { get; private set; }
+
+    public Guid? ConsumedByLoanId { get; private set; }
+
+    public DateTimeOffset? ConsumedAtUtc { get; private set; }
+
     public static LoanExceptionRequest Create(
         Guid tenantId,
         Guid customerId,
@@ -175,6 +181,29 @@ public sealed class LoanExceptionRequest
         Status = LoanExceptionStatus.Cancelled;
         CancelledByUserId = cancelledByUserId;
         CancelledAtUtc = cancelledAtUtc;
+        return true;
+    }
+
+    public bool Consume(Guid loanId, DateTimeOffset consumedAtUtc)
+    {
+        if (loanId == Guid.Empty)
+        {
+            throw new ArgumentException("Loan id is required.", nameof(loanId));
+        }
+
+        if (Status != LoanExceptionStatus.Approved)
+        {
+            throw new InvalidOperationException($"Cannot consume request with status '{Status}'. Only Approved requests can be consumed.");
+        }
+
+        if (IsConsumed)
+        {
+            throw new InvalidOperationException("Loan exception request has already been consumed.");
+        }
+
+        IsConsumed = true;
+        ConsumedByLoanId = loanId;
+        ConsumedAtUtc = consumedAtUtc;
         return true;
     }
 }

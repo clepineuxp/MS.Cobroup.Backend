@@ -1,3 +1,4 @@
+using MS.Cobroup.Backend.Domain.Loans;
 using MS.Cobroup.Backend.Domain.Payments;
 
 namespace MS.Cobroup.Backend.Domain.Interfaces.Repositories;
@@ -19,9 +20,21 @@ public interface IPaymentRepository
 
     Task AddAsync(Payment payment, CancellationToken cancellationToken);
 
+    Task<PaymentSaveOutcome> TryRegisterPaymentAsync(
+        Payment payment,
+        Loan loan,
+        CancellationToken cancellationToken);
+
     Task SaveChangesAsync(CancellationToken cancellationToken);
 
     Task<PaymentEvidence?> FindEvidenceAsync(Guid tenantId, Guid paymentId, Guid evidenceId, CancellationToken cancellationToken);
 
     Task AddEvidenceAsync(PaymentEvidence evidence, CancellationToken cancellationToken);
+}
+
+public enum PaymentSaveOutcome
+{
+    Success,
+    ConcurrencyConflict,
+    IdempotentReplay
 }

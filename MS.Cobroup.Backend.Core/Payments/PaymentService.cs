@@ -11,7 +11,8 @@ public sealed class PaymentService(
     IPaymentRepository paymentRepository,
     ILoanRepository loanRepository,
     IAdministrativeRouteDirectory routeDirectory,
-    IOperationalPaymentMethodDirectory paymentMethodDirectory)
+    IOperationalPaymentMethodDirectory paymentMethodDirectory,
+    MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService fileStorageService)
 {
     private static readonly HashSet<string> AllowedMimeTypes =
     [
@@ -142,8 +143,19 @@ public sealed class PaymentService(
             nowUtc,
             allocations);
 
-        await paymentRepository.AddAsync(payment, cancellationToken);
-        await loanRepository.SaveChangesAsync(cancellationToken);
+        var saveOutcome = await paymentRepository.TryRegisterPaymentAsync(payment, loan, cancellationToken);
+        if (saveOutcome is PaymentSaveOutcome.IdempotentReplay)
+        {
+            var replayed = await paymentRepository.FindByIdempotencyKeyAsync(actor.TenantId, input.IdempotencyKey.Trim(), cancellationToken);
+            if (replayed is not null)
+            {
+                return PaymentResult.Ok(PaymentDetails.FromDomain(replayed, loan.Terms.BalanceAmount, loan.Status));
+            }
+        }
+        else if (saveOutcome is PaymentSaveOutcome.ConcurrencyConflict)
+        {
+            return PaymentResult.Failure("El cobro no pudo completarse debido a una actualización concurrente en el saldo del préstamo. Por favor, reintente la operación.", PaymentErrorType.Conflict);
+        }
 
         return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan.Terms.BalanceAmount, loan.Status));
     }
@@ -185,8 +197,11 @@ public sealed class PaymentService(
             throw new UnauthorizedAccessException("No tiene acceso a la conciliación de esta ruta.");
         }
 
-        var startUtc = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var endUtc = new DateTimeOffset(date.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
+        var tz = GetTenantTimeZone();
+        var startLocal = date.ToDateTime(TimeOnly.MinValue);
+        var endLocal = date.ToDateTime(TimeOnly.MaxValue);
+        var startUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(startLocal, tz), TimeSpan.Zero);
+        var endUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(endLocal, tz), TimeSpan.Zero);
 
         var payments = await paymentRepository.ListByRouteAndDateAsync(actor.TenantId, routeId, startUtc, endUtc, cancellationToken);
 
@@ -209,6 +224,60 @@ public sealed class PaymentService(
             totalCollected,
             paymentCount,
             breakdown);
+    }
+
+    public async Task<PaymentResult> StoreAndAttachEvidenceAsync(
+        CustomerActor actor,
+        Guid paymentId,
+        string fileName,
+        string declaredContentType,
+        Stream fileStream,
+        string accessToken,
+        CancellationToken cancellationToken)
+    {
+        var payment = await paymentRepository.FindAsync(actor.TenantId, paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return PaymentResult.Failure("Cobro no encontrado.", PaymentErrorType.NotFound);
+        }
+
+        var routes = await routeDirectory.ListAccessibleAsync(accessToken, cancellationToken);
+        if (routes.Outcome is not RouteDirectoryOutcome.Success || routes.Routes.All(r => r.Id != payment.RouteId))
+        {
+            return PaymentResult.Failure("No tiene autorización para adjuntar evidencias en este cobro.", PaymentErrorType.Forbidden);
+        }
+
+        Domain.Interfaces.Services.StoredFileResult stored;
+        try
+        {
+            stored = await fileStorageService.StoreEvidenceAsync(
+                actor.TenantId,
+                paymentId,
+                fileName,
+                declaredContentType,
+                fileStream,
+                cancellationToken);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return PaymentResult.Failure(ex.Message, PaymentErrorType.ValidationError);
+        }
+
+        var evidence = PaymentEvidence.Create(
+            payment.Id,
+            actor.TenantId,
+            fileName,
+            stored.ContentType,
+            stored.ByteSize,
+            stored.StoragePath,
+            stored.FileHashSha256,
+            actor.UserId,
+            DateTimeOffset.UtcNow);
+
+        await paymentRepository.AddEvidenceAsync(evidence, cancellationToken);
+
+        var loan = await loanRepository.FindAsync(actor.TenantId, payment.LoanId, cancellationToken);
+        return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan?.Terms.BalanceAmount ?? 0m, loan?.Status ?? LoanStatus.Active));
     }
 
     public async Task<PaymentResult> AttachEvidenceAsync(
@@ -252,6 +321,18 @@ public sealed class PaymentService(
 
         var loan = await loanRepository.FindAsync(actor.TenantId, payment.LoanId, cancellationToken);
         return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan?.Terms.BalanceAmount ?? 0m, loan?.Status ?? LoanStatus.Active));
+    }
+
+    private static TimeZoneInfo GetTenantTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("America/Bogota");
+        }
+        catch
+        {
+            return TimeZoneInfo.Utc;
+        }
     }
 
     public async Task<PaymentResult> DeleteEvidenceAsync(

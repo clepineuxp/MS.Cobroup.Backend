@@ -1,0 +1,23 @@
+namespace MS.Cobroup.Backend.Domain.Interfaces.Services;
+
+public interface IFileStorageService
+{
+    Task<StoredFileResult> StoreEvidenceAsync(
+        Guid tenantId,
+        Guid paymentId,
+        string fileName,
+        string declaredContentType,
+        Stream stream,
+        CancellationToken cancellationToken);
+
+    Task<Stream?> ReadEvidenceAsync(
+        Guid tenantId,
+        string storagePath,
+        CancellationToken cancellationToken);
+}
+
+public sealed record StoredFileResult(
+    string StoragePath,
+    string ContentType,
+    long ByteSize,
+    string FileHashSha256);

@@ -48,6 +48,8 @@ builder.Services.AddScoped<ILoanRepository, EfLoanRepository>();
 builder.Services.AddScoped<IPaymentRepository, EfPaymentRepository>();
 builder.Services.AddScoped<IAgendaRepository, EfAgendaRepository>();
 
+builder.Services.AddSingleton<MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService, MS.Cobroup.Backend.Infrastructure.Storage.LocalFileStorageService>();
+
 builder.Services.AddDbContext<OperationsDbContext>(options =>
     options.UseNpgsql(operationsConnectionString, postgres =>
     {
@@ -114,22 +116,33 @@ builder.Services.AddOpenIddict().AddValidation(options =>
 
 var app = builder.Build();
 
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+var forwardedOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+};
+forwardedOptions.KnownIPNetworks.Clear();
+forwardedOptions.KnownProxies.Clear();
+app.UseForwardedHeaders(forwardedOptions);
 
 app.Use(async (context, next) =>
 {
-    var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
-        ?? Guid.NewGuid().ToString("D");
+    var rawCorrelationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault();
+    var correlationId = !string.IsNullOrWhiteSpace(rawCorrelationId) && rawCorrelationId.Length <= 64
+        ? rawCorrelationId.Trim()
+        : Guid.NewGuid().ToString("D");
+
+    context.TraceIdentifier = correlationId;
     context.Response.Headers["X-Correlation-ID"] = correlationId;
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["X-Frame-Options"] = "DENY";
     context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     context.Response.Headers["X-XSS-Protection"] = "0";
 
-    await next();
+    var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Correlation");
+    using (logger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = correlationId }))
+    {
+        await next();
+    }
 });
 
 app.UseAuthentication();

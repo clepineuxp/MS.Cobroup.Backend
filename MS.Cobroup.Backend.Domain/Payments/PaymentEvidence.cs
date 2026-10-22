@@ -14,6 +14,7 @@ public sealed class PaymentEvidence
         string contentType,
         long byteSize,
         string storagePath,
+        string fileHashSha256,
         Guid uploadedByUserId,
         DateTimeOffset uploadedAtUtc)
     {
@@ -24,6 +25,7 @@ public sealed class PaymentEvidence
         ContentType = contentType;
         ByteSize = byteSize;
         StoragePath = storagePath;
+        FileHashSha256 = fileHashSha256;
         UploadedByUserId = uploadedByUserId;
         UploadedAtUtc = uploadedAtUtc;
     }
@@ -35,6 +37,7 @@ public sealed class PaymentEvidence
     public string ContentType { get; private set; } = string.Empty;
     public long ByteSize { get; private set; }
     public string StoragePath { get; private set; } = string.Empty;
+    public string FileHashSha256 { get; private set; } = string.Empty;
     public Guid UploadedByUserId { get; private set; }
     public DateTimeOffset UploadedAtUtc { get; private set; }
     public bool IsDeleted { get; private set; }
@@ -49,12 +52,14 @@ public sealed class PaymentEvidence
         string contentType,
         long byteSize,
         string storagePath,
+        string fileHashSha256,
         Guid uploadedByUserId,
         DateTimeOffset uploadedAtUtc)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(fileName);
         ArgumentException.ThrowIfNullOrWhiteSpace(contentType);
         ArgumentException.ThrowIfNullOrWhiteSpace(storagePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(fileHashSha256);
 
         if (byteSize <= 0)
         {
@@ -69,9 +74,21 @@ public sealed class PaymentEvidence
             contentType.Trim().ToLowerInvariant(),
             byteSize,
             storagePath.Trim(),
+            fileHashSha256.Trim().ToLowerInvariant(),
             uploadedByUserId,
             uploadedAtUtc);
     }
+
+    public static PaymentEvidence Create(
+        Guid paymentId,
+        Guid tenantId,
+        string fileName,
+        string contentType,
+        long byteSize,
+        string storagePath,
+        Guid uploadedByUserId,
+        DateTimeOffset uploadedAtUtc) =>
+        Create(paymentId, tenantId, fileName, contentType, byteSize, storagePath, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", uploadedByUserId, uploadedAtUtc);
 
     public void MarkDeleted(Guid adminUserId, string reason, DateTimeOffset deletedAtUtc)
     {

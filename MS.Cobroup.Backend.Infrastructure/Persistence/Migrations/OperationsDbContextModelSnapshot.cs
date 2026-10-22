@@ -201,6 +201,12 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<Guid?>("CancelledByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("ConsumedByLoanId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset>("CreatedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -224,6 +230,11 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<string>("DecisionNotes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsConsumed")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<decimal>("ProposedAmount")
                         .HasPrecision(18, 2)
@@ -255,6 +266,10 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CustomerId");
+
+                    b.HasIndex("TenantId", "ConsumedByLoanId")
+                        .IsUnique()
+                        .HasFilter("\"ConsumedByLoanId\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "CustomerId", "Status");
 
@@ -293,6 +308,12 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
 
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
+
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
 
                     b.HasKey("Id");
 
@@ -346,6 +367,12 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("TenantId")
                         .HasColumnType("uuid");
 
+                    b.Property<uint>("xmin")
+                        .IsConcurrencyToken()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("xid")
+                        .HasColumnName("xmin");
+
                     b.ComplexProperty(typeof(Dictionary<string, object>), "Terms", "MS.Cobroup.Backend.Domain.Loans.Loan.Terms#LoanTermsSnapshot", b1 =>
                         {
                             b1.IsRequired();
@@ -395,6 +422,10 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CustomerId");
+
+                    b.HasIndex("TenantId", "ExceptionRequestId")
+                        .IsUnique()
+                        .HasFilter("\"ExceptionRequestId\" IS NOT NULL");
 
                     b.HasIndex("TenantId", "CustomerId", "Status");
 
@@ -514,6 +545,11 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<string>("DeletionReason")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FileHashSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<string>("FileName")
                         .IsRequired()

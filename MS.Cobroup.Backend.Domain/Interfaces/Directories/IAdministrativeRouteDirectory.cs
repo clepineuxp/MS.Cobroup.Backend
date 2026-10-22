@@ -1,4 +1,4 @@
-namespace MS.Cobroup.Backend.Core.Routes;
+namespace MS.Cobroup.Backend.Domain.Interfaces.Directories;
 
 public interface IAdministrativeRouteDirectory
 {
