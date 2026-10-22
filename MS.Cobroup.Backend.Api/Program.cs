@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Microsoft.EntityFrameworkCore;
+using MS.Cobroup.Backend.Core.Agenda;
 using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Core.LoanExceptions;
 using MS.Cobroup.Backend.Core.Loans;
@@ -32,10 +33,12 @@ builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<LoanExceptionService>();
 builder.Services.AddScoped<LoanService>();
 builder.Services.AddScoped<PaymentService>();
+builder.Services.AddScoped<AgendaService>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
 builder.Services.AddScoped<ILoanExceptionRepository, EfLoanExceptionRepository>();
 builder.Services.AddScoped<ILoanRepository, EfLoanRepository>();
 builder.Services.AddScoped<IPaymentRepository, EfPaymentRepository>();
+builder.Services.AddScoped<IAgendaRepository, EfAgendaRepository>();
 builder.Services.AddDbContext<OperationsDbContext>(options =>
     options.UseNpgsql(operationsConnectionString, postgres =>
     {

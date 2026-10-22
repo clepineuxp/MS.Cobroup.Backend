@@ -4,19 +4,19 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.3.0.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.5.0.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-7-pagos-conciliacion`.
+- Rama requerida y activa: `feature/fase-8-mapas-analitica`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 7
+- Fase: 8
 - Resultado: COMPLETADA_FUNCIONALMENTE
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 7 completas funcionalmente, 2 posteriores pendientes. Informe: `../cobroup.md/informe/avance.md`.
-- Corte actual: pagos y cobros ordinarios/parciales en cascada sobre cuotas (AC-11), garantía de idempotencia (AC-12), validación de medios de pago autorizados (AC-13), soporte de fotografía auditable y retiro exclusivo por Admin (AC-14), y conciliación diaria por ruta y medio de pago (AC-17); validación estricta de FRAMEWORK_DESARROLLO_CSHARP 2.0; build Release 0 warnings/errores; Core 71/71 e Infrastructure 23/23 (94 pruebas en verde); migración EF `20261021220458_AddPaymentsAndEvidences` aplicada en PostgreSQL.
+- Línea base: 9 fases totales; 8 completas funcionalmente, 1 posterior pendiente. Informe: `../cobroup.md/informe/avance.md`.
+- Corte actual: Fase 7 cerrada en Git (`03b2748`); Fase 8 completada: cálculo de agenda diaria y vencimientos exactos (AC-16), optimización secuencial de ruta por proximidad geográfica mediante algoritmo de Haversine en el dominio, ubicaciones georreferenciadas con semáforo de colores, y motor de analítica de cartera en tiempo real con Aging Report (0d, 1-7d, 8-15d, 16-30d, >30d) e índice PAR%; validación estricta de FRAMEWORK_DESARROLLO_CSHARP 2.0; build Release 0 warnings/errores; Core 81/81 e Infrastructure 25/25 (106 pruebas en verde).
 
 ## Historial cronológico (append-only)
 
@@ -142,4 +142,35 @@
 - Validación de arquitectura: cumplimiento estricto de FRAMEWORK_DESARROLLO_CSHARP 2.0 (hexagonal, capas desacopladas, invariantes en entidades de dominio, DTOs explícitos y repositorios testeados).
 - Build: Release compilado con 0 warnings y 0 errors.
 - Git: rama `feature/fase-7-pagos-conciliacion`; push, merge, tag y PR no autorizados.
+
+### 2026-10-21 — Cierre versionado de fase 7 en Git
+
+- Prompt: correcto, hacer commits de fase 7 e iniciar fase 8.
+- Resultado: fase 7 validada; commit autorizado: SÍ, commit local `03b2748` (`feat(payments): implement cascade allocation, idempotency and daily reconciliation`).
+- Rama de trabajo creada y activa: `feature/fase-8-mapas-analitica`.
+- Operaciones no autorizadas: push, merge, tag y PR.
+
+### 2026-10-21 — Implementación de fase 8: mapas, georreferenciación y analítica
+
+- Dominio y reglas geográficas/analíticas:
+  - Enumeración `AgendaStatus` (`Overdue`, `DueToday`, `UpToDate`, `CollectedToday`) en `Domain/Agenda`.
+  - Calculador puro `HaversineGeoCalculator`: cálculo de distancia geodésica mediante fórmula del semiverseno con radio terrestre medio de 6.371 km; algoritmo voraz de ordenamiento secuencial de paradas por cercanía (Nearest Neighbor) y acumulación métrica de distancias.
+  - Puerto `IAgendaRepository` en `Domain/Interfaces/Repositories`.
+- Casos de uso y Core:
+  - `AgendaContracts`: DTOs inmutables para agenda diaria, paradas georreferenciadas, optimización secuencial y analítica de cartera.
+  - `AgendaService`:
+    - Cálculo de agenda de cobro diaria con vencimientos, cuotas del día y mora según fecha local (AC-16).
+    - Optimización de secuencia de visitas minimizando distancia entre paradas.
+    - Extracción de ubicaciones georreferenciadas de clientes de la ruta con semáforo de estados (`#ef4444` mora, `#eab308` vence hoy, `#22c55e` al día/cobrado, `#3b82f6` sin cuota hoy).
+    - Motor analítico de cartera en tiempo real: cartera colocada, recaudado histórico, saldo activo, mora vencida, índice PAR% e informe de envejecimiento de deuda (Aging Report) segmentado en 0d, 1-7d, 8-15d, 16-30d y >30d.
+- Persistencia e infraestructura:
+  - `EfAgendaRepository` implementado sobre `OperationsDbContext` y PostgreSQL, consultando eficientemente `loans`, `installments`, `customers` y `customer_addresses`.
+- API y controladores:
+  - `AgendaController` en `Api/Controllers`: endpoints `GET /api/operations/v1/agenda/daily`, `POST /api/operations/v1/agenda/optimize-route`, `GET /api/operations/v1/agenda/map-locations`, `GET /api/operations/v1/agenda/portfolio-analytics`.
+  - Registro de dependencias en `Program.cs`.
+- Pruebas automatizadas:
+  - Suite ampliada a 106 pruebas en verde: Core 81/81 (algoritmo Haversine, optimización secuencial, estados de agenda, aging buckets y métricas PAR%) e Infrastructure 25/25 (repositorio EF sobre PostgreSQL).
+- Validación de arquitectura: cumplimiento estricto de FRAMEWORK_DESARROLLO_CSHARP 2.0 (hexagonal, dominio puro sin dependencias externas, DTOs inmutables, controladores delgados).
+- Build: Release compilado con 0 warnings y 0 errors (`dotnet build -c Release`).
+- Git: rama `feature/fase-8-mapas-analitica`; push, merge, tag y PR no autorizados.
 
