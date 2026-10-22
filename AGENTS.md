@@ -4,19 +4,19 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.0.8.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.2.0.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-5-plantillas-excepciones`.
+- Rama requerida y activa: `feature/fase-6-prestamos-cronograma`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 5
+- Fase: 6
 - Resultado: COMPLETADA_FUNCIONALMENTE
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 5 completas funcionalmente, 4 posteriores pendientes. Informe: `../cobroup.md/informe/avance.md`.
-- Corte actual: catálogo versionado y solicitudes/decisión de excepciones cerradas; build Release 0 warnings/errores; Core 42/42 e Infrastructure 13/13; migración `AddLoanExceptionRequests` aplicada a PostgreSQL.
+- Línea base: 9 fases totales; 6 completas funcionalmente, 3 posteriores pendientes. Informe: `../cobroup.md/informe/avance.md`.
+- Corte actual: originación de préstamos, snapshot inmutable de términos y plantilla (AC-09), cálculo decimal de cuotas con residuo de centavos en última cuota (AC-10), validación de cupo de ruta y filtros por cliente/ruta; build Release 0 warnings/errores; Core 62/62 e Infrastructure 19/19 (81 pruebas); migración EF `20261021210019_AddLoansAndInstallments` aplicada en PostgreSQL.
 
 ## Historial cronológico (append-only)
 
@@ -102,4 +102,22 @@
 - Cancelación: permitida al autor o a un Admin mientras permanezca en estado `Pending`.
 - Persistencia: migración EF `AddLoanExceptionRequests` creada y aplicada en el esquema PostgreSQL `operations`; repositorio `EfLoanExceptionRepository` con índices tenant-safe y join informativo para nombre de cliente.
 - Validación: build Release con 0 warnings y 0 errores; suite de pruebas ampliada a Core 42/42 e Infrastructure 16/16 (total 58/58).
-- Git: cambios de fase 5 sin commit; push, merge, tag y PR no autorizados.
+- Git: commit de fase 5 autorizado por el usuario: `8cc1e42` (`feat(loan-exceptions): implement loan exception requests and decision enforcement`); push, merge, tag y PR permanecen prohibidos.
+
+### 2026-10-21 — Cierre funcional de fase 6: préstamos y cronograma de cuotas
+
+- Dominio y reglas financieras:
+  - Entidades `Loan`, `Installment`, `LoanTermsSnapshot`, y enums `PaymentFrequency` (`Daily`, `Weekly`, `EveryNDays`), `LoanStatus` (`Active`, `PaidOff`, `Cancelled`), `InstallmentStatus` (`Pending`, `PartiallyPaid`, `Paid`).
+  - Calculador `LoanScheduleCalculator`: genera cronograma decimal garantizando `sum(installments) == totalAmount` mediante ajuste de centavos residuales en la última cuota (AC-10).
+  - Servicio `LoanService`: valida cliente activo y dentro de ruta autorizada (AC-06), verifica cupo de préstamos activos de la ruta frente a cupo efectivo, valida coincidencia con plantilla publicada o excepción de crédito en estado `Approved` (AC-08, AC-09).
+- Persistencia y migraciones:
+  - Mapeo EF Core con esquema `operations` en `OperationsDbContext`, mapeando `Loan` (con `ComplexProperty` para `LoanTermsSnapshot`) y colección de `Installment` con borrado en cascada.
+  - Repositorio `EfLoanRepository`: estrategia de consulta en dos fases (página con `AsNoTracking` y posterior join de nombres de cliente en memoria) para compatibilidad absoluta entre PostgreSQL e InMemory provider.
+  - Migración EF Core `20261021210019_AddLoansAndInstallments` generada y aplicada exitosamente en base de datos PostgreSQL real.
+- API y contratos:
+  - `LoansController` exponiendo `POST /api/operations/v1/loans` (originación), `POST /api/operations/v1/loans/preview-schedule` (simulación reactiva sin persistir), `GET /api/operations/v1/loans` (búsqueda con paginación y filtros), `GET /api/operations/v1/loans/{id}` (detalle con cuotas), `GET /api/operations/v1/loans/by-customer/{customerId}`.
+- Pruebas automatizadas:
+  - Suite ampliada a 81 pruebas en verde: Core 62/62 (pruebas de cálculo matemático, reglas de cupo, validación de plantillas y excepciones, estados de préstamo) e Infrastructure 19/19 (repositorio EF, mapeos, PostgreSQL real y cliente administrativo).
+- Build: Release compilado con 0 warnings y 0 errors (`dotnet build -c Release`).
+- Git: rama `feature/fase-6-prestamos-cronograma` lista para commit de cierre de fase tras autorización del usuario; push, merge, tag y PR no autorizados.
+

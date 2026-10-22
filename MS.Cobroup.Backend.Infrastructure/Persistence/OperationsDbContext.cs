@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.LoanExceptions;
+using MS.Cobroup.Backend.Domain.Loans;
 
 namespace MS.Cobroup.Backend.Infrastructure.Persistence;
 
@@ -15,6 +16,10 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
     public DbSet<CustomerAuditRecord> CustomerAuditRecords => Set<CustomerAuditRecord>();
 
     public DbSet<LoanExceptionRequest> LoanExceptionRequests => Set<LoanExceptionRequest>();
+
+    public DbSet<Loan> Loans => Set<Loan>();
+
+    public DbSet<Installment> Installments => Set<Installment>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +100,50 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
                 .WithMany()
                 .HasForeignKey(e => e.CustomerId)
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Loan>(entity =>
+        {
+            entity.ToTable("loans");
+            entity.HasKey(loan => loan.Id);
+            entity.Property(loan => loan.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(loan => loan.CreatedByRole).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.ComplexProperty(loan => loan.Terms, terms =>
+            {
+                terms.Property(t => t.PrincipalAmount).HasPrecision(18, 2).IsRequired();
+                terms.Property(t => t.InterestRate).HasPrecision(5, 2).IsRequired();
+                terms.Property(t => t.InterestAmount).HasPrecision(18, 2).IsRequired();
+                terms.Property(t => t.TotalAmount).HasPrecision(18, 2).IsRequired();
+                terms.Property(t => t.PaidAmount).HasPrecision(18, 2).IsRequired();
+                terms.Property(t => t.BalanceAmount).HasPrecision(18, 2).IsRequired();
+                terms.Property(t => t.PaymentFrequency).HasConversion<string>().HasMaxLength(20).IsRequired();
+                terms.Property(t => t.FrequencyNDays);
+                terms.Property(t => t.InstallmentCount).IsRequired();
+                terms.Property(t => t.StartsAtUtc).IsRequired();
+                terms.Property(t => t.DueAtUtc).IsRequired();
+            });
+            entity.HasIndex(loan => new { loan.TenantId, loan.RouteId, loan.Status });
+            entity.HasIndex(loan => new { loan.TenantId, loan.CustomerId, loan.Status });
+            entity.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(loan => loan.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+            entity.HasMany(loan => loan.Installments)
+                .WithOne()
+                .HasForeignKey(installment => installment.LoanId)
+                .OnDelete(DeleteBehavior.Cascade);
+            entity.Navigation(loan => loan.Installments).UsePropertyAccessMode(PropertyAccessMode.Field);
+        });
+
+        modelBuilder.Entity<Installment>(entity =>
+        {
+            entity.ToTable("installments");
+            entity.HasKey(installment => installment.Id);
+            entity.Property(installment => installment.ExpectedAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(installment => installment.PaidAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(installment => installment.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.HasIndex(installment => new { installment.TenantId, installment.LoanId, installment.Number }).IsUnique();
+            entity.HasIndex(installment => new { installment.TenantId, installment.DueDate, installment.Status });
         });
     }
 }
