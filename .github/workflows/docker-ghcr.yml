@@ -1,0 +1,150 @@
+name: Build, Test and Deploy Backend to GHCR & K3s
+
+on:
+  push:
+    branches:
+      - dev
+      - qa
+      - prod
+      - main
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/ms-cobroup-backend
+
+jobs:
+  test:
+    name: Run Automated Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: 1. Checkout Code
+        uses: actions/checkout@v4
+
+      - name: 2. Setup .NET SDK 10
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: 3. Restore Dependencies
+        run: dotnet restore MS.Cobroup.Backend.slnx
+
+      - name: 4. Build Solution
+        run: dotnet build MS.Cobroup.Backend.slnx -c Release --no-restore
+
+      - name: 5. Execute Tests
+        run: dotnet test MS.Cobroup.Backend.slnx -c Release --no-build --verbosity normal
+
+  build-and-push:
+    name: Build & Push Docker Image to GHCR
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: 1. Checkout repository
+        uses: actions/checkout@v4
+
+      - name: 2. Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 3. Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 4. Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: |
+            latest=false
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prod' }}
+
+      - name: 5. Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy:
+    name: Deploy to Kubernetes via SSH
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/qa' || github.ref == 'refs/heads/prod' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: 1. Determine Target Environment
+        id: env-detect
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/dev" ]; then
+            echo "env=dev" >> $GITHUB_OUTPUT
+            echo "ns=cobroup-dev" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref }}" = "refs/heads/qa" ]; then
+            echo "env=qa" >> $GITHUB_OUTPUT
+            echo "ns=cobroup-qa" >> $GITHUB_OUTPUT
+          else
+            echo "env=prod" >> $GITHUB_OUTPUT
+            echo "ns=cobroup-prod" >> $GITHUB_OUTPUT
+          fi
+
+      - name: 2. Deploy and Rollout via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+          port: ${{ secrets.SSH_PORT || 22 }}
+          script: |
+            DEPLOY_ENV="${{ steps.env-detect.outputs.env }}"
+            NAMESPACE="${{ steps.env-detect.outputs.ns }}"
+            BASE_PATH="/opt/cobroup/deploys/$DEPLOY_ENV"
+            COMPONENT_PATH="$BASE_PATH/backend"
+
+            echo "========================================================"
+            echo " Iniciando despliegue de backend en ambiente: $DEPLOY_ENV"
+            echo " Namespace de Kubernetes: $NAMESPACE"
+            echo "========================================================"
+
+            # 1. Aplicar ingress si existe
+            if [ -f "$BASE_PATH/ingress.yaml" ]; then
+              echo "Aplicando $BASE_PATH/ingress.yaml..."
+              kubectl apply -f "$BASE_PATH/ingress.yaml"
+            fi
+
+            # 2. Aplicar manifiestos específicos del componente (secret.yaml primero si existe)
+            if [ -d "$COMPONENT_PATH" ]; then
+              if [ -f "$COMPONENT_PATH/secret.yaml" ]; then
+                echo "Aplicando $COMPONENT_PATH/secret.yaml..."
+                kubectl apply -f "$COMPONENT_PATH/secret.yaml"
+              fi
+              echo "Aplicando manifiestos restantes en $COMPONENT_PATH..."
+              kubectl apply -f "$COMPONENT_PATH/"
+            else
+              echo "ADVERTENCIA: No se encontró la carpeta $COMPONENT_PATH"
+            fi
+
+            # 3. Reiniciar el deployment específico y validar estatus
+            echo "Reiniciando deployment/backend en namespace $NAMESPACE..."
+            kubectl rollout restart deployment/backend -n "$NAMESPACE"
+            kubectl rollout status deployment/backend -n "$NAMESPACE" --timeout=120s
+
+            echo "========================================================"
+            echo " Despliegue de backend finalizado exitosamente"
+            echo "========================================================"
