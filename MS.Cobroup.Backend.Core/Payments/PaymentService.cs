@@ -288,49 +288,6 @@ public sealed class PaymentService(
         return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan?.Terms.BalanceAmount ?? 0m, loan?.Status ?? LoanStatus.Active));
     }
 
-    public async Task<PaymentResult> AttachEvidenceAsync(
-        CustomerActor actor,
-        Guid paymentId,
-        string fileName,
-        string contentType,
-        long byteSize,
-        string storagePath,
-        string accessToken,
-        CancellationToken cancellationToken)
-    {
-        var payment = await paymentRepository.FindAsync(actor.TenantId, paymentId, cancellationToken);
-        if (payment is null)
-        {
-            return PaymentResult.Failure("Pago no encontrado.", PaymentErrorType.NotFound);
-        }
-
-        var routes = await routeDirectory.ListAccessibleAsync(accessToken, cancellationToken);
-        if (routes.Outcome is not RouteDirectoryOutcome.Success || routes.Routes.All(r => r.Id != payment.RouteId))
-        {
-            return PaymentResult.Failure("No tiene acceso al préstamo de este pago.", PaymentErrorType.Forbidden);
-        }
-
-        if (string.IsNullOrWhiteSpace(contentType) || !AllowedMimeTypes.Contains(contentType.Trim().ToLowerInvariant()))
-        {
-            return PaymentResult.Failure("Formato de imagen no permitido. Se admite JPG, PNG o WEBP.", PaymentErrorType.ValidationError);
-        }
-
-        var evidence = PaymentEvidence.Create(
-            paymentId,
-            actor.TenantId,
-            fileName,
-            contentType,
-            byteSize,
-            storagePath,
-            actor.UserId,
-            DateTimeOffset.UtcNow);
-
-        await paymentRepository.AddEvidenceAsync(evidence, cancellationToken);
-
-        var loan = await loanRepository.FindAsync(actor.TenantId, payment.LoanId, cancellationToken);
-        return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan?.Terms.BalanceAmount ?? 0m, loan?.Status ?? LoanStatus.Active));
-    }
-
     private static TimeZoneInfo GetTenantTimeZone()
     {
         try

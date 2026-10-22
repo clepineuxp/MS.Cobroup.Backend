@@ -94,7 +94,11 @@ builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentM
     client.Timeout = TimeSpan.FromSeconds(10);
 }).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
-builder.Services.AddHttpClient<IJwksValidationService, JwksValidationService>();
+builder.Services.AddHttpClient("JwksClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddSingleton<IJwksValidationService, JwksValidationService>();
 builder.Services.AddHostedService<JwksPreloadHostedService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

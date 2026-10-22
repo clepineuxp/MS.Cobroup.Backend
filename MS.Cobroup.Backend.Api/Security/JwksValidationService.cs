@@ -12,7 +12,7 @@ public interface IJwksValidationService
 
 public sealed class JwksValidationService : IJwksValidationService
 {
-    private readonly HttpClient httpClient;
+    private readonly IHttpClientFactory httpClientFactory;
     private readonly ILogger<JwksValidationService> logger;
     private readonly string? jwksUri;
     private readonly string issuer;
@@ -21,6 +21,7 @@ public sealed class JwksValidationService : IJwksValidationService
     private readonly SemaphoreSlim refreshLock = new(1, 1);
     private JsonWebKeySet? cachedJwks;
     private DateTimeOffset nextRefreshAllowedAtUtc = DateTimeOffset.MinValue;
+    private int isBackgroundRefreshing = 0;
 
     public TokenValidationParameters TokenValidationParameters { get; }
 
@@ -29,10 +30,10 @@ public sealed class JwksValidationService : IJwksValidationService
     public JwksValidationService(
         IConfiguration configuration,
         IHostEnvironment environment,
-        HttpClient httpClient,
+        IHttpClientFactory httpClientFactory,
         ILogger<JwksValidationService> logger)
     {
-        this.httpClient = httpClient;
+        this.httpClientFactory = httpClientFactory;
         this.logger = logger;
 
         issuer = configuration["Identity:Issuer"]
@@ -119,7 +120,8 @@ public sealed class JwksValidationService : IJwksValidationService
                 return false;
             }
 
-            var response = await httpClient.GetStringAsync(jwksUri, cancellationToken);
+            var client = httpClientFactory.CreateClient("JwksClient");
+            var response = await client.GetStringAsync(jwksUri, cancellationToken);
             cachedJwks = new JsonWebKeySet(response);
             nextRefreshAllowedAtUtc = DateTimeOffset.UtcNow.AddMinutes(5);
             logger.LogInformation("Successfully refreshed JWKS from {JwksUri}. Available keys: {Count}", jwksUri, cachedJwks.Keys.Count);
@@ -127,7 +129,8 @@ public sealed class JwksValidationService : IJwksValidationService
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to refresh JWKS from {JwksUri}", jwksUri);
+            nextRefreshAllowedAtUtc = DateTimeOffset.UtcNow.AddSeconds(30);
+            logger.LogWarning(ex, "Failed to refresh JWKS from {JwksUri}. Backoff for 30s.", jwksUri);
             return false;
         }
         finally
@@ -163,21 +166,27 @@ public sealed class JwksValidationService : IJwksValidationService
             }
         }
 
-        // Kid is unknown. Trigger a background asynchronous refresh if cooldown allows,
-        // without blocking this validation thread synchronously.
+        // Kid is unknown. Trigger a background single-flight asynchronous refresh if cooldown allows
         if (DateTimeOffset.UtcNow >= nextRefreshAllowedAtUtc && !string.IsNullOrWhiteSpace(jwksUri))
         {
-            _ = Task.Run(async () =>
+            if (Interlocked.CompareExchange(ref isBackgroundRefreshing, 1, 0) == 0)
             {
-                try
+                _ = Task.Run(async () =>
                 {
-                    await RefreshJwksAsync(force: false, CancellationToken.None);
-                }
-                catch
-                {
-                    // Ignore background refresh failure
-                }
-            });
+                    try
+                    {
+                        await RefreshJwksAsync(force: false, CancellationToken.None);
+                    }
+                    catch
+                    {
+                        // Ignore background refresh failure
+                    }
+                    finally
+                    {
+                        Interlocked.Exchange(ref isBackgroundRefreshing, 0);
+                    }
+                });
+            }
         }
 
         return [];

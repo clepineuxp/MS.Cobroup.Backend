@@ -190,7 +190,7 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
-    public async Task AttachEvidenceAsync_fails_for_disallowed_content_type()
+    public async Task StoreAndAttachEvidenceAsync_fails_for_disallowed_content_type()
     {
         var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
         var loan = CreateSampleLoan(1000m, 2);
@@ -198,13 +198,13 @@ public sealed class PaymentServiceTests
 
         var paymentResult = await service.RegisterPaymentAsync(actor, new RegisterPaymentInput(loan.Id, 100m, paymentMethodId, null, "P-EVID"), "token", CancellationToken.None);
 
-        var result = await service.AttachEvidenceAsync(
+        using var stream = new MemoryStream("%PDF-1.4"u8.ToArray());
+        var result = await service.StoreAndAttachEvidenceAsync(
             actor,
             paymentResult.Payment!.Id,
             "recibo.pdf",
             "application/pdf",
-            1024,
-            "/storage/evidences/recibo.pdf",
+            stream,
             "token",
             CancellationToken.None);
 
@@ -223,13 +223,13 @@ public sealed class PaymentServiceTests
 
         var paymentResult = await service.RegisterPaymentAsync(collectorActor, new RegisterPaymentInput(loan.Id, 100m, paymentMethodId, null, "P-EVID-DEL"), "token", CancellationToken.None);
 
-        var attachResult = await service.AttachEvidenceAsync(
+        using var validJpegStream = new MemoryStream([0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46]);
+        var attachResult = await service.StoreAndAttachEvidenceAsync(
             collectorActor,
             paymentResult.Payment!.Id,
             "recibo.jpg",
             "image/jpeg",
-            2048,
-            "/storage/recibo.jpg",
+            validJpegStream,
             "token",
             CancellationToken.None);
         Assert.True(attachResult.Success);
@@ -405,6 +405,13 @@ public sealed class PaymentServiceTests
 
     private sealed class FakeFileStorageService : IFileStorageService
     {
+        private static readonly HashSet<string> AllowedMimeTypes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            "image/jpeg",
+            "image/png",
+            "image/webp"
+        };
+
         public Task<StoredFileResult> StoreEvidenceAsync(
             Guid tenantId,
             Guid paymentId,
@@ -413,6 +420,10 @@ public sealed class PaymentServiceTests
             Stream stream,
             CancellationToken cancellationToken)
         {
+            if (!AllowedMimeTypes.Contains(declaredContentType))
+            {
+                throw new InvalidOperationException("Formato de imagen no permitido. Solo se aceptan JPEG, PNG y WebP.");
+            }
             return Task.FromResult(new StoredFileResult("evidence/test.jpg", declaredContentType, stream.Length, "sha256-test-hash"));
         }
 

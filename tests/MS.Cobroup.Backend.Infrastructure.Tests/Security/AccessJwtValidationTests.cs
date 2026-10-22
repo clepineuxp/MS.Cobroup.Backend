@@ -42,7 +42,7 @@ public sealed class AccessJwtValidationTests
         var config = new ConfigurationBuilder().AddInMemoryCollection(inMemory).Build();
         var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
 
-        jwksService = new JwksValidationService(config, env, new HttpClient(), NullLogger<JwksValidationService>.Instance);
+        jwksService = new JwksValidationService(config, env, new TestHttpClientFactory(new HttpClient()), NullLogger<JwksValidationService>.Instance);
         tokenHandler = new JwtSecurityTokenHandler { MapInboundClaims = false };
     }
 
@@ -317,5 +317,10 @@ public sealed class AccessJwtValidationTests
         public string ApplicationName { get; set; } = "BackendTests";
         public string ContentRootPath { get; set; } = AppContext.BaseDirectory;
         public IFileProvider ContentRootFileProvider { get; set; } = new NullFileProvider();
+    }
+
+    private sealed class TestHttpClientFactory(HttpClient client) : IHttpClientFactory
+    {
+        public HttpClient CreateClient(string name) => client;
     }
 }
