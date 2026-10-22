@@ -403,6 +403,152 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("loans", "operations");
                 });
 
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Payments.Payment", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("CollectorUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("LoanId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("PaymentMethodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PaymentMethodName")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTimeOffset>("RegisteredAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("RouteId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LoanId");
+
+                    b.HasIndex("TenantId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("TenantId", "LoanId");
+
+                    b.HasIndex("TenantId", "RouteId", "RegisteredAtUtc");
+
+                    b.ToTable("payments", "operations");
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Payments.PaymentAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("AmountAllocated")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<Guid>("InstallmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("InstallmentNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("IsFullyCovered")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PaymentId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentId", "InstallmentId");
+
+                    b.ToTable("payment_allocations", "operations");
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Payments.PaymentEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<long>("ByteSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTimeOffset?>("DeletedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("DeletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DeletionReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<bool>("IsDeleted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PaymentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StoragePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTimeOffset>("UploadedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UploadedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentId");
+
+                    b.HasIndex("TenantId", "PaymentId", "IsDeleted");
+
+                    b.ToTable("payment_evidences", "operations");
+                });
+
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerAuditRecord", b =>
                 {
                     b.HasOne("MS.Cobroup.Backend.Domain.Customers.Customer", null)
@@ -457,6 +603,33 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Payments.Payment", b =>
+                {
+                    b.HasOne("MS.Cobroup.Backend.Domain.Loans.Loan", null)
+                        .WithMany()
+                        .HasForeignKey("LoanId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Payments.PaymentAllocation", b =>
+                {
+                    b.HasOne("MS.Cobroup.Backend.Domain.Payments.Payment", null)
+                        .WithMany("Allocations")
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Payments.PaymentEvidence", b =>
+                {
+                    b.HasOne("MS.Cobroup.Backend.Domain.Payments.Payment", null)
+                        .WithMany("Evidences")
+                        .HasForeignKey("PaymentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.Customer", b =>
                 {
                     b.Navigation("Locations");
@@ -467,6 +640,13 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Loans.Loan", b =>
                 {
                     b.Navigation("Installments");
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Payments.Payment", b =>
+                {
+                    b.Navigation("Allocations");
+
+                    b.Navigation("Evidences");
                 });
 #pragma warning restore 612, 618
         }

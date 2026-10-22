@@ -4,6 +4,7 @@ using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Core.LoanExceptions;
 using MS.Cobroup.Backend.Core.Loans;
 using MS.Cobroup.Backend.Core.LoanTemplates;
+using MS.Cobroup.Backend.Core.Payments;
 using MS.Cobroup.Backend.Core.Services;
 using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Authorization;
@@ -11,6 +12,7 @@ using MS.Cobroup.Backend.Domain.Interfaces.Services;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 using MS.Cobroup.Backend.Infrastructure.Persistence;
 using MS.Cobroup.Backend.Infrastructure.LoanTemplates;
+using MS.Cobroup.Backend.Infrastructure.Payments;
 using MS.Cobroup.Backend.Infrastructure.Routes;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
@@ -29,9 +31,11 @@ builder.Services.AddScoped<ListAvailableLoanTemplatesService>();
 builder.Services.AddScoped<CustomerService>();
 builder.Services.AddScoped<LoanExceptionService>();
 builder.Services.AddScoped<LoanService>();
+builder.Services.AddScoped<PaymentService>();
 builder.Services.AddScoped<ICustomerRepository, EfCustomerRepository>();
 builder.Services.AddScoped<ILoanExceptionRepository, EfLoanExceptionRepository>();
 builder.Services.AddScoped<ILoanRepository, EfLoanRepository>();
+builder.Services.AddScoped<IPaymentRepository, EfPaymentRepository>();
 builder.Services.AddDbContext<OperationsDbContext>(options =>
     options.UseNpgsql(operationsConnectionString, postgres =>
     {
@@ -47,6 +51,14 @@ builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirector
     client.Timeout = TimeSpan.FromSeconds(10);
 });
 builder.Services.AddHttpClient<IAdministrativeLoanTemplateDirectory, AdminLoanTemplateDirectoryClient>((services, client) =>
+{
+    var configuration = services.GetRequiredService<IConfiguration>();
+    var baseUrl = configuration["AdministrativeApi:BaseUrl"]
+        ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
+    client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentMethodDirectoryClient>((services, client) =>
 {
     var configuration = services.GetRequiredService<IConfiguration>();
     var baseUrl = configuration["AdministrativeApi:BaseUrl"]

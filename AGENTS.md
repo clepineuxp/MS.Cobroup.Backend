@@ -4,19 +4,19 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.2.0.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.3.0.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-6-prestamos-cronograma`.
+- Rama requerida y activa: `feature/fase-7-pagos-conciliacion`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 6
+- Fase: 7
 - Resultado: COMPLETADA_FUNCIONALMENTE
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 6 completas funcionalmente, 3 posteriores pendientes. Informe: `../cobroup.md/informe/avance.md`.
-- Corte actual: originación de préstamos, snapshot inmutable de términos y plantilla (AC-09), cálculo decimal de cuotas con residuo de centavos en última cuota (AC-10), validación de cupo de ruta y filtros por cliente/ruta; build Release 0 warnings/errores; Core 62/62 e Infrastructure 19/19 (81 pruebas); migración EF `20261021210019_AddLoansAndInstallments` aplicada en PostgreSQL.
+- Línea base: 9 fases totales; 7 completas funcionalmente, 2 posteriores pendientes. Informe: `../cobroup.md/informe/avance.md`.
+- Corte actual: pagos y cobros ordinarios/parciales en cascada sobre cuotas (AC-11), garantía de idempotencia (AC-12), validación de medios de pago autorizados (AC-13), soporte de fotografía auditable y retiro exclusivo por Admin (AC-14), y conciliación diaria por ruta y medio de pago (AC-17); validación estricta de FRAMEWORK_DESARROLLO_CSHARP 2.0; build Release 0 warnings/errores; Core 71/71 e Infrastructure 23/23 (94 pruebas en verde); migración EF `20261021220458_AddPaymentsAndEvidences` aplicada en PostgreSQL.
 
 ## Historial cronológico (append-only)
 
@@ -119,5 +119,27 @@
 - Pruebas automatizadas:
   - Suite ampliada a 81 pruebas en verde: Core 62/62 (pruebas de cálculo matemático, reglas de cupo, validación de plantillas y excepciones, estados de préstamo) e Infrastructure 19/19 (repositorio EF, mapeos, PostgreSQL real y cliente administrativo).
 - Build: Release compilado con 0 warnings y 0 errors (`dotnet build -c Release`).
-- Git: rama `feature/fase-6-prestamos-cronograma` lista para commit de cierre de fase tras autorización del usuario; push, merge, tag y PR no autorizados.
+- Git: commit local `2537925` (`feat(loans): implement loan origination, schedule calculation and active loans quotas`) en rama `feature/fase-6-prestamos-cronograma`; push, merge, tag y PR no autorizados.
+
+### 2026-10-21 — Cierre funcional de fase 7: pagos, evidencias y conciliación
+
+- Dominio y reglas financieras:
+  - Entidades `Payment`, `PaymentAllocation`, `PaymentEvidence` en `MS.Cobroup.Backend.Domain.Payments`.
+  - Métodos `ApplyPayment(decimal amount)` en `Loan` e `Installment` que aplican el pago en cascada sobre las cuotas pendientes ordenadas cronológicamente (AC-11), amortizando saldo restante y pasando el préstamo a `LoanStatus.PaidOff` exclusivamente cuando el saldo llega a cero.
+  - Garantía de idempotencia (AC-12) vía `IdempotencyKey` única por tenant contra cobros duplicados en reintentos o pérdida de red.
+  - Validación de medio de pago activo y autorizado para el tenant (AC-13).
+  - Soporte de fotografía de evidencia opcional (`PaymentEvidence`) en formatos `image/jpeg`, `image/png`, `image/webp` con retiro auditable restringido exclusivamente al rol `Admin` (AC-14).
+  - Motor de conciliación diaria de recaudo por ruta y medio de pago (AC-17).
+- Persistencia y base de datos:
+  - Mapeo EF Core en `OperationsDbContext` dentro del esquema `operations` para `payments`, `payment_allocations` y `payment_evidences` con índices tenant-safe e índices de fecha/ruta.
+  - Repositorio `EfPaymentRepository` implementando `IPaymentRepository`.
+  - Migración EF Core `20261021220458_AddPaymentsAndEvidences` aplicada exitosamente en PostgreSQL.
+- API y controladores:
+  - `PaymentsController` en `MS.Cobroup.Backend.Api/Controllers`: endpoints `POST /api/operations/v1/payments`, `GET /api/operations/v1/payments/by-loan/{loanId}`, `GET /api/operations/v1/payments/daily-reconciliation`, `POST /api/operations/v1/payments/{paymentId}/evidence`, `DELETE /api/operations/v1/payments/{paymentId}/evidence/{evidenceId}`, `GET /api/operations/v1/payments/payment-methods`.
+  - Cliente proxy `AdminPaymentMethodDirectoryClient` para resolución de medios de pago autorizados.
+- Pruebas automatizadas:
+  - Suite ampliada a 94 pruebas en verde: Core 71/71 (cascada, saldo cero, idempotencia, restricción de evidencia admin-only, conciliación por medio) e Infrastructure 23/23 (repositorio EF, aislamiento multi-tenant, persistencia y filtros de fecha/ruta).
+- Validación de arquitectura: cumplimiento estricto de FRAMEWORK_DESARROLLO_CSHARP 2.0 (hexagonal, capas desacopladas, invariantes en entidades de dominio, DTOs explícitos y repositorios testeados).
+- Build: Release compilado con 0 warnings y 0 errors.
+- Git: rama `feature/fase-7-pagos-conciliacion`; push, merge, tag y PR no autorizados.
 

@@ -54,4 +54,22 @@ public sealed class Installment
 
         return new(Guid.NewGuid(), tenantId, loanId, number, dueDate, expectedAmount, 0m, InstallmentStatus.Pending);
     }
+
+    public void ApplyPayment(decimal amount)
+    {
+        if (amount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount must be positive.");
+        }
+
+        var remaining = ExpectedAmount - PaidAmount;
+        if (amount > remaining)
+        {
+            throw new InvalidOperationException($"Cannot apply {amount} to installment #{Number} with remaining balance {remaining}.");
+        }
+
+        PaidAmount += amount;
+        Status = PaidAmount >= ExpectedAmount ? InstallmentStatus.Paid : InstallmentStatus.PartiallyPaid;
+    }
 }
+

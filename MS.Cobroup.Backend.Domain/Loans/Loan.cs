@@ -127,4 +127,37 @@ public sealed class Loan
             createdAtUtc,
             installments);
     }
+
+    public void ApplyPayment(decimal amount)
+    {
+        if (amount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "Payment amount must be positive.");
+        }
+
+        if (Status != LoanStatus.Active)
+        {
+            throw new InvalidOperationException($"Cannot apply payment to loan {Id} because it is in status {Status}.");
+        }
+
+        if (amount > Terms.BalanceAmount)
+        {
+            throw new InvalidOperationException($"Payment amount ({amount}) exceeds current loan balance ({Terms.BalanceAmount}).");
+        }
+
+        var newPaid = Terms.PaidAmount + amount;
+        var newBalance = Terms.BalanceAmount - amount;
+
+        Terms = Terms with
+        {
+            PaidAmount = newPaid,
+            BalanceAmount = newBalance
+        };
+
+        if (newBalance == 0m)
+        {
+            Status = LoanStatus.PaidOff;
+        }
+    }
 }
+
