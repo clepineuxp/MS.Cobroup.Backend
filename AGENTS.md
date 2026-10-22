@@ -4,19 +4,19 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.0.7.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.0.8.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-4-clientes`.
+- Rama requerida y activa: `feature/fase-5-plantillas-excepciones`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 4
-- Resultado: COMPLETADA
+- Fase: 5
+- Resultado: COMPLETADA_FUNCIONALMENTE
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 4 completas y 5 pendientes. Informe: `../cobroup.md/informe/avance.md`.
-- Corte actual: clientes tenant-safe con auditoría transaccional; build Release 0 warnings/errores; Core 18/18 e Infrastructure 9/9; migraciones aplicadas de forma idempotente.
+- Línea base: 9 fases totales; 5 completas funcionalmente, 4 posteriores pendientes. Informe: `../cobroup.md/informe/avance.md`.
+- Corte actual: catálogo versionado y solicitudes/decisión de excepciones cerradas; build Release 0 warnings/errores; Core 42/42 e Infrastructure 13/13; migración `AddLoanExceptionRequests` aplicada a PostgreSQL.
 
 ## Historial cronológico (append-only)
 
@@ -83,3 +83,23 @@
 - Pruebas reales: aislamiento cross-tenant aun compartiendo ruta, actualización de contactos sin colisión y dos altas concurrentes con cupo 1 producen exactamente un alta y un rechazo.
 - Validación: build Release 0 warnings/errores; Core 18/18, Infrastructure 9/9 e integración OIDC directa/fachada HTTP 200.
 - Git: commit de fase 4 autorizado; push, merge, tag y PR permanecen prohibidos.
+
+### 2026-10-21 — Inicio de fase 5: consulta operativa de plantillas
+
+- Rama: `feature/fase-5-plantillas-excepciones`; fase 4 ya comprometida y repositorio limpio al iniciar.
+- Contrato: `GET /api/operations/v1/loan-templates` reenvía el bearer a la autoridad administrativa y expone únicamente plantillas publicadas del tenant vigente.
+- Resiliencia: conserva `401/403`; red, timeout y errores del propietario se presentan como `503`.
+- Validación: build Release sin advertencias; Core 20/20 e Infrastructure 13/13.
+- Pendiente de fase: persistir solicitudes excepcionales ligadas a clientes visibles y exponer transición consistente para decisión administrativa; no se originan préstamos en esta fase.
+- Git: cambios de fase 5 sin commit; push, merge, tag y PR no autorizados.
+
+### 2026-10-21 — Cierre funcional de fase 5: excepciones de préstamo
+
+- Entidades: agregada `LoanExceptionRequest` y enums `LoanExceptionStatus` (`Pending`, `Approved`, `Rejected`, `Cancelled`) y `LoanExceptionDecision`.
+- Reglas: monto > 0, días > 0, porcentaje > 0, motivo obligatorio y no mayor a 500 caracteres; cliente visible, activo y dentro de ruta autorizada.
+- Autoridad de decisión: AC-08 implementado y probado; endpoint `POST /api/operations/v1/loan-exceptions/{id}/decision` protegido por política `tenant-admin` y validado estrictamente en Core (`actor.Role is UserRole.Admin`); cualquier intento de aprobación o rechazo por Collector o Supervisor es rechazado con 403 Forbidden sin alterar el estado.
+- Idempotencia: decisiones idénticas sobre el mismo estado no alteran datos y retornan exitosamente.
+- Cancelación: permitida al autor o a un Admin mientras permanezca en estado `Pending`.
+- Persistencia: migración EF `AddLoanExceptionRequests` creada y aplicada en el esquema PostgreSQL `operations`; repositorio `EfLoanExceptionRepository` con índices tenant-safe y join informativo para nombre de cliente.
+- Validación: build Release con 0 warnings y 0 errores; suite de pruebas ampliada a Core 42/42 e Infrastructure 16/16 (total 58/58).
+- Git: cambios de fase 5 sin commit; push, merge, tag y PR no autorizados.

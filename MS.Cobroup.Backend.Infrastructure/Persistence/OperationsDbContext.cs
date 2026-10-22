@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using MS.Cobroup.Backend.Domain.Customers;
+using MS.Cobroup.Backend.Domain.LoanExceptions;
 
 namespace MS.Cobroup.Backend.Infrastructure.Persistence;
 
@@ -12,6 +13,8 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
     public DbSet<CustomerLocation> CustomerLocations => Set<CustomerLocation>();
 
     public DbSet<CustomerAuditRecord> CustomerAuditRecords => Set<CustomerAuditRecord>();
+
+    public DbSet<LoanExceptionRequest> LoanExceptionRequests => Set<LoanExceptionRequest>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -72,6 +75,25 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.HasOne<Customer>()
                 .WithMany()
                 .HasForeignKey(record => record.CustomerId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LoanExceptionRequest>(entity =>
+        {
+            entity.ToTable("loan_exception_requests");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ProposedAmount).HasPrecision(18, 2).IsRequired();
+            entity.Property(e => e.ProposedDays).IsRequired();
+            entity.Property(e => e.ProposedPercentage).HasPrecision(6, 2).IsRequired();
+            entity.Property(e => e.Reason).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.Property(e => e.CreatedByRole).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.Property(e => e.DecisionNotes).HasMaxLength(500);
+            entity.HasIndex(e => new { e.TenantId, e.RouteId, e.Status });
+            entity.HasIndex(e => new { e.TenantId, e.CustomerId, e.Status });
+            entity.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(e => e.CustomerId)
                 .OnDelete(DeleteBehavior.Restrict);
         });
     }
