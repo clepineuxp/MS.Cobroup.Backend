@@ -2,7 +2,7 @@
 
 ## Identidad y autorización
 
-La API acepta únicamente access tokens JWT asimétricos emitidos por BackendAdmin para audiencia `cobroup-api`. Deben aportar `typ=access`, `sub`, `iss`, `aud`, `exp`, `iat`, `nbf`, `jti`, `organization_id` y rol. La API valida firma, algoritmo, `kid`, emisor, audiencia y vigencia antes de resolver el alcance; no confía en un tenant enviado como parámetro. Roles canónicos: `ADMIN`, `SUPERVISOR`, `COLLECTOR`. Ver `../../../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
+La API acepta únicamente access tokens JWT `HS256` emitidos por BackendAdmin para audiencia `cobroup-api`. Deben aportar `typ=access`, `sub`, `iss`, `aud`, `exp`, `iat`, `nbf`, `jti`, `organization_id` y rol. La API valida localmente firma, algoritmo exacto, `kid`, emisor, audiencia y vigencia usando el secreto del ambiente; no emite tokens ni confía en un tenant enviado por parámetro. Roles canónicos: `ADMIN`, `SUPERVISOR`, `COLLECTOR`. Ver `../../../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
 
 ## Contratos consumidores
 

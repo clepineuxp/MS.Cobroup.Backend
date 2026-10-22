@@ -51,11 +51,40 @@ builder.Services.AddScoped<ILoanRepository, EfLoanRepository>();
 builder.Services.AddScoped<IPaymentRepository, EfPaymentRepository>();
 builder.Services.AddScoped<IAgendaRepository, EfAgendaRepository>();
 
-if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(builder.Configuration["Storage:EvidencePath"]))
+var storageSection = builder.Configuration.GetSection(MS.Cobroup.Backend.Infrastructure.Storage.FileSystemStorageOptions.SectionName);
+var storageProvider = storageSection["Provider"] ?? "FileSystem";
+
+if (string.Equals(storageProvider, "S3", StringComparison.OrdinalIgnoreCase))
 {
-    throw new InvalidOperationException("Storage:EvidencePath is required in non-development environments for durable shared evidence storage.");
+    throw new NotSupportedException("El proveedor de almacenamiento 'S3' está previsto para una fase futura de evolución arquitectónica y no está habilitado en la presente versión.");
 }
-builder.Services.AddSingleton<MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService, MS.Cobroup.Backend.Infrastructure.Storage.LocalFileStorageService>();
+
+if (!string.Equals(storageProvider, "FileSystem", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException($"Proveedor de almacenamiento desconocido '{storageProvider}'. Solo 'FileSystem' está soportado actualmente.");
+}
+
+var evidenceRootPath = storageSection["EvidencePath"] ?? storageSection["RootPath"];
+if (string.IsNullOrWhiteSpace(evidenceRootPath))
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException("Storage:EvidencePath is required in non-development environments for durable shared evidence storage.");
+    }
+    evidenceRootPath = Path.Combine(AppContext.BaseDirectory, "storage", "evidences");
+}
+
+builder.Services.Configure<MS.Cobroup.Backend.Infrastructure.Storage.FileSystemStorageOptions>(options =>
+{
+    options.Provider = storageProvider;
+    options.RootPath = evidenceRootPath;
+    if (long.TryParse(storageSection["MaxFileSizeBytes"], out var maxBytes) && maxBytes > 0)
+    {
+        options.MaxFileSizeBytes = maxBytes;
+    }
+});
+
+builder.Services.AddSingleton<MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService, MS.Cobroup.Backend.Infrastructure.Storage.FileSystemObjectStorage>();
 
 builder.Services.AddDbContext<OperationsDbContext>(options =>
     options.UseNpgsql(operationsConnectionString, postgres =>

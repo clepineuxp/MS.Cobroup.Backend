@@ -1,6 +1,6 @@
 # ADR-002 — Confianza en la autoridad central
 
-Estado: revisada y aceptada el 2026-10-22. Implementación pendiente de conformidad.
+Estado: SUPERSEDIDA parcialmente el 2026-10-22 por `DECISION_AUTENTICACION_JWT.md` y BackendAdmin ADR-0007 en todo lo relativo a algoritmo y distribución de claves. Se conserva como trazabilidad histórica; siguen vigentes autoridad central, no emisión y aislamiento tenant.
 
 El backend operativo no almacena credenciales, refresh tokens ni material privado, y no emite tokens. Valida únicamente access tokens JWT firmados de manera asimétrica por `MS.Cobroup.BackendAdmin`, usando las claves públicas publicadas en `/api/v1/auth/.well-known/jwks.json`.
 

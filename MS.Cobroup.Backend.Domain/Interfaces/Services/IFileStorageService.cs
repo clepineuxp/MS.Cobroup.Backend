@@ -12,17 +12,23 @@ public interface IFileStorageService
 
     Task<Stream?> ReadEvidenceAsync(
         Guid tenantId,
-        string storagePath,
+        string storageKey,
         CancellationToken cancellationToken);
 
     Task DeleteEvidenceAsync(
         Guid tenantId,
-        string storagePath,
+        string storageKey,
         CancellationToken cancellationToken);
 }
 
 public sealed record StoredFileResult(
-    string StoragePath,
+    string StorageKey,
     string ContentType,
     long ByteSize,
-    string FileHashSha256);
+    string FileHashSha256)
+{
+    /// <summary>
+    /// Alias de compatibilidad hacia atrás que devuelve la clave lógica relativa.
+    /// </summary>
+    public string StoragePath => StorageKey;
+}

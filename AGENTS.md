@@ -230,4 +230,35 @@
 - Validación: 106/106 pruebas unitarias y de integración pasando en verde (Core 81/81, Infrastructure 25/25), build Release 0 warnings/errores, 0 cambios pendientes de modelo EF Core.
 - Git: cambios preservados en el working tree sin commit, push, merge, tag ni PR.
 
+### 2026-10-22 — Remediación Bloqueante B-09 (Auditoría v5): Almacenamiento durable en PVC y desacoplamiento hexagonal hacia AWS S3
 
+- **Solicitud**: Remediar el bloqueante B-09 documentado en la auditoría v5 (`cobroup.md/informe/auditoria-backend-csharp-2026-10-22-v5.html`), garantizando almacenamiento durable no efímero de evidencias mediante PVC de Kubernetes, desacoplado bajo arquitectura hexagonal con previsión de evolución futura a AWS S3.
+- **Decisión de almacenamiento PVC→S3**:
+  - Proveedor actual: PersistentVolumeClaim (PVC) de Kubernetes montado en `/var/cobroup/evidences`. En producción (2 réplicas) requiere `ReadWriteMany` (10Gi).
+  - Proveedor futuro previsto: AWS S3 mediante inyección de dependencias y configuración (`Storage:Provider=S3`), sin instalar SDK de AWS ni modificar Core, Domain ni contratos HTTP.
+  - La base de datos almacena exclusivamente claves lógicas relativas normalizadas (`StorageKey`), nunca rutas absolutas del pod ni del PVC.
+- **Implementación técnica**:
+  - `MS.Cobroup.Backend.Domain/Interfaces/Services/IFileStorageService.cs`: Puerto agnóstico con `StoredFileResult(StorageKey, ContentType, ByteSize, FileHashSha256)` y métodos asíncronos `SaveEvidenceAsync`, `ReadEvidenceAsync` y `DeleteEvidenceAsync` con `CancellationToken`.
+  - `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemStorageOptions.cs`: Opciones tipadas vinculadas a la sección `Storage`.
+  - `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemObjectStorage.cs`: Adaptador durable que rechaza path traversal (`..`, `:`, rutas absolutas), efectúa streaming en bloques con buffers de 64 KB, valida magic bytes (JPEG/PNG/WebP), restringe tamaño a 10 MB durante la lectura, computa hash SHA-256 incremental, escribe en `.tmp/` dentro del mismo volumen y realiza movimiento atómico al destino final, con limpieza garantizada en `finally`. En lecturas usa `FileShare.ReadWrite | FileShare.Delete` para interoperabilidad concurrente entre réplicas.
+  - `MS.Cobroup.Backend.Infrastructure/Storage/LocalFileStorageService.cs`: Mantenido como fachada delegada para preservar compatibilidad.
+  - `MS.Cobroup.Backend.Api/Program.cs`: Configuración tipada de almacenamiento. Si `Storage:Provider=S3` lanza `NotSupportedException` descriptiva; fail-fast ante proveedores no reconocidos fuera de pruebas.
+- **Archivos modificados/creados**:
+  - Modificados: `MS.Cobroup.Backend.Domain/Interfaces/Services/IFileStorageService.cs`, `MS.Cobroup.Backend.Infrastructure/Storage/LocalFileStorageService.cs`, `MS.Cobroup.Backend.Api/Program.cs`, `README.md`, `docs/context/INDEX.md`, `AGENTS.md`.
+  - Creados: `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemStorageOptions.cs`, `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemObjectStorage.cs`, `docs/decisions/0004-durable-file-storage-pvc.md`, `tests/MS.Cobroup.Backend.Infrastructure.Tests/Storage/FileSystemObjectStorageTests.cs`.
+- **Resultados de pruebas**:
+  - Suite `MS.Cobroup.Backend.Infrastructure.Tests/Storage/FileSystemObjectStorageTests.cs`: 8 pruebas unitarias e integración en verde (normalización y rechazo traversal, límites de streaming, validación magic bytes, SHA-256, colisiones, atomic move, cancelación y persistencia/lectura compartida entre réplicas).
+  - Suite completa `MS.Cobroup.Backend.slnx`: 157/157 pruebas pasando (Core 81/81, Infrastructure 76/76).
+  - Compilación Release: 0 warnings, 0 errors (`dotnet build -c Release --no-incremental`).
+  - EF Core: 0 cambios pendientes de modelo (`dotnet ef migrations has-pending-model-changes`).
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-22 — Decisión arquitectónica: Alineación con proveedor RSA efímero de BackendAdmin y validación JWKS
+
+- **Decisión obligatoria aplicada**:
+  > COBROUP continuará usando JWT firmados. En la fase actual de desarrollo y validación no se configurará una clave privada externa en formato PEM. BackendAdmin utilizará un proveedor RSA efímero generado en memoria, habilitado de forma explícita y restringido a entornos no productivos. La clave y el `kid` cambian al reiniciar la instancia; en consecuencia, los JWT emitidos antes del reinicio pueden dejar de ser válidos. Este modo no se considera apto para producción, alta disponibilidad ni múltiples réplicas emisoras. La custodia de una clave persistente, su rotación, solapamiento de claves y recuperación operativa mediante Kubernetes Secret, PFX, PEM, AWS KMS u otro proveedor aprobado quedan registrados como backlog obligatorio previo a producción.
+- **Alineación operativa de Backend**:
+  - `MS.Cobroup.Backend` valida tokens exclusivamente mediante JWKS asimétrico (`GET /api/v1/auth/.well-known/jwks.json`) expuesto por `BackendAdmin`. No posee ni recibe claves privadas ni secretos simétricos.
+  - Se reconoce la limitación operativa: al reiniciar BackendAdmin en modo efímero, se genera un nuevo `kid` y nuevo par de claves; el backend operativo actualiza JWKS según su política, pero los tokens emitidos antes del reinicio pueden ser rechazados inmediatamente.
+- **Validación**: 157/157 pruebas pasando en verde (Core 81/81, Infrastructure 76/76); compilación Release limpia.
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.

@@ -20,5 +20,5 @@ Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evid
 - Health check: `/health`.
 - Lectura contractual de rutas autorizadas implementada. La validación de identidad JWT está reabierta y pendiente de conformidad con la decisión del 2026-10-22.
 - Contratos: [fronteras v1](../contracts/platform-boundaries-v1.md).
-- Decisiones: [fundación fase 1](../decisions/0001-phase-1-foundation.md) y [confianza JWT](../decisions/0002-trust-central-identity.md).
+- Decisiones: [fundación fase 1](../decisions/0001-phase-1-foundation.md), [confianza JWT](../decisions/0002-trust-central-identity.md) y [almacenamiento durable PVC](../decisions/0004-durable-file-storage-pvc.md).
 - Roadmap propuesto: [fases siguientes](../roadmap/phase-proposal.md).
