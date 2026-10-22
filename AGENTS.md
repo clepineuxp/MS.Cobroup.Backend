@@ -4,19 +4,19 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.5.0.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.6.0.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-8-mapas-analitica`.
+- Rama requerida y activa: `feature/fase-9-endurecimiento-despliegue`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
-- Fase: 8
+- Fase: 9
 - Resultado: COMPLETADA_FUNCIONALMENTE
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
 - Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 8 completas funcionalmente, 1 posterior pendiente. Informe: `../cobroup.md/informe/avance.md`.
-- Corte actual: Fase 7 cerrada en Git (`03b2748`); Fase 8 completada: cálculo de agenda diaria y vencimientos exactos (AC-16), optimización secuencial de ruta por proximidad geográfica mediante algoritmo de Haversine en el dominio, ubicaciones georreferenciadas con semáforo de colores, y motor de analítica de cartera en tiempo real con Aging Report (0d, 1-7d, 8-15d, 16-30d, >30d) e índice PAR%; validación estricta de FRAMEWORK_DESARROLLO_CSHARP 2.0; build Release 0 warnings/errores; Core 81/81 e Infrastructure 25/25 (106 pruebas en verde).
+- Línea base: 9 fases totales; 9 completas (100%). Informe: `../cobroup.md/informe/avance.md` 2.0.0.
+- Corte actual: Fase 8 cerrada en Git (`cf65b00`); Fase 9 completada: health checks nativos (`/health/live`, `/health/ready` con `OperationsDatabaseHealthCheck` sobre PostgreSQL), `UseForwardedHeaders` para Ingress Traefik, cabeceras de seguridad HTTP (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`), Correlation ID (`X-Correlation-ID`), `Dockerfile` multi-stage no root (`1000:1000`) en puerto 8080, workflow CI/CD `.github/workflows/ci-cd.yml` para K3s (`cobroup-dev`, `cobroup-qa`, `cobroup-prod`) con GHCR y SSH; build Release 0 warnings/errores; 106 pruebas en verde.
 
 ## Historial cronológico (append-only)
 
@@ -173,4 +173,31 @@
 - Validación de arquitectura: cumplimiento estricto de FRAMEWORK_DESARROLLO_CSHARP 2.0 (hexagonal, dominio puro sin dependencias externas, DTOs inmutables, controladores delgados).
 - Build: Release compilado con 0 warnings y 0 errors (`dotnet build -c Release`).
 - Git: rama `feature/fase-8-mapas-analitica`; push, merge, tag y PR no autorizados.
+
+### 2026-10-21 — Cierre versionado de fase 8 en Git
+
+- Prompt: correcto, hacer commits de fase 7 e iniciar fase 8 / proceder con la fase final.
+- Resultado: fase 8 validada; commit autorizado: SÍ, commit local `cf65b00` (`feat(agenda): implement daily agenda, haversine geo sequence and portfolio analytics`).
+- Rama de trabajo creada y activa: `feature/fase-9-endurecimiento-despliegue`.
+- Operaciones no autorizadas: push, merge, tag y PR.
+
+### 2026-10-21 — Implementación de fase 9: endurecimiento y despliegue K3s/Kubernetes
+
+- Observabilidad y Health Checks:
+  - `OperationsDatabaseHealthCheck` creado en `MS.Cobroup.Backend.Api/Health/` implementando `IHealthCheck` para verificar conectividad activa con PostgreSQL (`SELECT 1`).
+  - Registro en `Program.cs` de probes: `GET /health/live` (liveness) y `GET /health/ready` (readiness con comprobación de BD).
+- Seguridad HTTP e Ingress:
+  - `UseForwardedHeaders` configurado para soporte de cabeceras de proxy (`X-Forwarded-For`, `X-Forwarded-Proto`) de Ingress Traefik.
+  - Middleware de cabeceras de seguridad: `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, `X-XSS-Protection: 0`.
+  - Correlation ID middleware (`X-Correlation-ID`) para trazabilidad transversal.
+- Contenedorización OCI / Docker:
+  - `Dockerfile` multi-stage: build con .NET SDK 10, ejecución con runtime ASP.NET Core 10, usuario no root `1000:1000`, puerto 8080.
+  - `.dockerignore` configurado.
+- Orquestación K3s y CI/CD:
+  - Manifiestos K3s (`k8s/base/backend-operations.yaml`, `namespace.yaml`, `ingress.yaml`, `configmap.yaml`, `secrets-template.yaml`).
+  - Pipeline `.github/workflows/ci-cd.yml`: ejecución de tests, build y push a GHCR (`ghcr.io/clepineuxp/ms-cobroup-backend`), y despliegue automatizado por SSH a K3s para ambientes `cobroup-dev`, `cobroup-qa`, `cobroup-prod`.
+- Pruebas automatizadas y build:
+  - 106 pruebas en verde: Core 81/81, Infrastructure 25/25.
+  - Compilación Release con 0 warnings y 0 errores.
+- Git: rama `feature/fase-9-endurecimiento-despliegue`; push, merge, tag y PR no autorizados.
 
