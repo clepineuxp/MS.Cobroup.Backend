@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace MS.Cobroup.Backend.Api.Controllers;
 
 [ApiController]
+[Route("api/operations/v1/session")]
 [Route("api/v1/session")]
 [Authorize(Policy = "tenant-user")]
 public sealed class SessionController : ControllerBase

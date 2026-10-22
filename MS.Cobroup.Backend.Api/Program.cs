@@ -30,7 +30,8 @@ var operationsConnectionString = builder.Configuration.GetConnectionString("Oper
 
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy("Service is live"), tags: ["live"])
-    .AddCheck<OperationsDatabaseHealthCheck>("database", tags: ["ready"]);
+    .AddCheck<OperationsDatabaseHealthCheck>("database", tags: ["ready"])
+    .AddCheck<JwksHealthCheck>("jwks", tags: ["ready"]);
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -94,12 +95,26 @@ builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentM
 }).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
 builder.Services.AddHttpClient<IJwksValidationService, JwksValidationService>();
+builder.Services.AddHostedService<JwksPreloadHostedService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
+        options.MapInboundClaims = false;
         options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
         options.SaveToken = true;
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                var validation = AccessJwtValidator.Validate(context.Principal, context.SecurityToken);
+                if (!validation.IsValid)
+                {
+                    context.Fail(validation.FailureReason!);
+                }
+                return Task.CompletedTask;
+            }
+        };
     });
 
 builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)

@@ -6,11 +6,14 @@ namespace MS.Cobroup.Backend.Api.Security;
 public interface IJwksValidationService
 {
     TokenValidationParameters TokenValidationParameters { get; }
+    Task<bool> RefreshJwksAsync(bool force = false, CancellationToken cancellationToken = default);
+    bool HasKeys { get; }
 }
 
 public sealed class JwksValidationService : IJwksValidationService
 {
     private readonly HttpClient httpClient;
+    private readonly ILogger<JwksValidationService> logger;
     private readonly string? jwksUri;
     private readonly string issuer;
     private readonly string audience;
@@ -21,12 +24,16 @@ public sealed class JwksValidationService : IJwksValidationService
 
     public TokenValidationParameters TokenValidationParameters { get; }
 
+    public bool HasKeys => staticPublicKeys.Count > 0 || (cachedJwks is not null && cachedJwks.Keys.Count > 0);
+
     public JwksValidationService(
         IConfiguration configuration,
         IHostEnvironment environment,
-        HttpClient httpClient)
+        HttpClient httpClient,
+        ILogger<JwksValidationService> logger)
     {
         this.httpClient = httpClient;
+        this.logger = logger;
 
         issuer = configuration["Identity:Issuer"]
             ?? throw new InvalidOperationException("Identity:Issuer is required.");
@@ -61,6 +68,16 @@ public sealed class JwksValidationService : IJwksValidationService
             staticPublicKeys.Add(key);
         }
 
+        var previousPublicKeyPem = configuration["Jwt:PreviousPublicKeyPem"];
+        var previousKid = configuration["Jwt:PreviousKeyId"] ?? configuration["Jwt:PreviousKid"];
+        if (!string.IsNullOrWhiteSpace(previousPublicKeyPem) && !string.IsNullOrWhiteSpace(previousKid))
+        {
+            var rsaPrev = RSA.Create();
+            ImportPublicKey(rsaPrev, previousPublicKeyPem);
+            var keyPrev = new RsaSecurityKey(rsaPrev) { KeyId = previousKid };
+            staticPublicKeys.Add(keyPrev);
+        }
+
         TokenValidationParameters = new TokenValidationParameters
         {
             ValidateIssuer = true,
@@ -71,8 +88,52 @@ public sealed class JwksValidationService : IJwksValidationService
             ValidateIssuerSigningKey = true,
             ClockSkew = TimeSpan.FromSeconds(30),
             ValidAlgorithms = [SecurityAlgorithms.RsaSha256],
+            RoleClaimType = "role",
+            NameClaimType = "preferred_username",
             IssuerSigningKeyResolver = ResolveSigningKey
         };
+    }
+
+    public async Task<bool> RefreshJwksAsync(bool force = false, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(jwksUri))
+        {
+            return false;
+        }
+
+        if (!force && DateTimeOffset.UtcNow < nextRefreshAllowedAtUtc)
+        {
+            return false;
+        }
+
+        var acquired = await refreshLock.WaitAsync(TimeSpan.FromSeconds(5), cancellationToken);
+        if (!acquired)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (!force && DateTimeOffset.UtcNow < nextRefreshAllowedAtUtc)
+            {
+                return false;
+            }
+
+            var response = await httpClient.GetStringAsync(jwksUri, cancellationToken);
+            cachedJwks = new JsonWebKeySet(response);
+            nextRefreshAllowedAtUtc = DateTimeOffset.UtcNow.AddMinutes(5);
+            logger.LogInformation("Successfully refreshed JWKS from {JwksUri}. Available keys: {Count}", jwksUri, cachedJwks.Keys.Count);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Failed to refresh JWKS from {JwksUri}", jwksUri);
+            return false;
+        }
+        finally
+        {
+            refreshLock.Release();
+        }
     }
 
     public IEnumerable<SecurityKey> ResolveSigningKey(
@@ -81,21 +142,19 @@ public sealed class JwksValidationService : IJwksValidationService
         string kid,
         TokenValidationParameters validationParameters)
     {
+        if (string.IsNullOrWhiteSpace(kid))
+        {
+            return [];
+        }
+
         if (staticPublicKeys.Count > 0)
         {
-            if (!string.IsNullOrWhiteSpace(kid))
-            {
-                var match = staticPublicKeys.FirstOrDefault(k => k.KeyId == kid);
-                if (match is not null) return [match];
-            }
-            else
-            {
-                return staticPublicKeys;
-            }
+            var match = staticPublicKeys.FirstOrDefault(k => k.KeyId == kid);
+            if (match is not null) return [match];
         }
 
         // Try cached JWKS
-        if (cachedJwks is not null && !string.IsNullOrWhiteSpace(kid))
+        if (cachedJwks is not null)
         {
             var matching = cachedJwks.Keys.FirstOrDefault(k => k.Kid == kid);
             if (matching is not null)
@@ -104,39 +163,21 @@ public sealed class JwksValidationService : IJwksValidationService
             }
         }
 
-        // Single retry on unknown kid
+        // Kid is unknown. Trigger a background asynchronous refresh if cooldown allows,
+        // without blocking this validation thread synchronously.
         if (DateTimeOffset.UtcNow >= nextRefreshAllowedAtUtc && !string.IsNullOrWhiteSpace(jwksUri))
         {
-            try
+            _ = Task.Run(async () =>
             {
-                refreshLock.Wait(TimeSpan.FromSeconds(3));
                 try
                 {
-                    if (DateTimeOffset.UtcNow >= nextRefreshAllowedAtUtc)
-                    {
-                        var response = httpClient.GetStringAsync(jwksUri).GetAwaiter().GetResult();
-                        cachedJwks = new JsonWebKeySet(response);
-                        nextRefreshAllowedAtUtc = DateTimeOffset.UtcNow.AddMinutes(5);
-
-                        if (!string.IsNullOrWhiteSpace(kid))
-                        {
-                            var matching = cachedJwks.Keys.FirstOrDefault(k => k.Kid == kid);
-                            if (matching is not null)
-                            {
-                                return [matching];
-                            }
-                        }
-                    }
+                    await RefreshJwksAsync(force: false, CancellationToken.None);
                 }
-                finally
+                catch
                 {
-                    refreshLock.Release();
+                    // Ignore background refresh failure
                 }
-            }
-            catch
-            {
-                // Inability to fetch JWKS falls through to rejection
-            }
+            });
         }
 
         return [];

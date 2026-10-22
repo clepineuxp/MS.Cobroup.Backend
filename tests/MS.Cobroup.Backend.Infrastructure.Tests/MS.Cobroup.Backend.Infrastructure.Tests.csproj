@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\..\MS.Cobroup.Backend.Api\MS.Cobroup.Backend.Api.csproj" />
     <ProjectReference Include="..\..\MS.Cobroup.Backend.Infrastructure\MS.Cobroup.Backend.Infrastructure.csproj" />
   </ItemGroup>
 
