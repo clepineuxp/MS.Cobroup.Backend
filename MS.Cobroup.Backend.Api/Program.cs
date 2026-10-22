@@ -1,8 +1,11 @@
+using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.IdentityModel.Tokens;
 using MS.Cobroup.Backend.Api.Health;
 using MS.Cobroup.Backend.Core.Agenda;
 using MS.Cobroup.Backend.Core.Customers;
@@ -19,8 +22,7 @@ using MS.Cobroup.Backend.Infrastructure.LoanTemplates;
 using MS.Cobroup.Backend.Infrastructure.Payments;
 using MS.Cobroup.Backend.Infrastructure.Persistence;
 using MS.Cobroup.Backend.Infrastructure.Routes;
-using OpenIddict.Abstractions;
-using OpenIddict.Validation.AspNetCore;
+using MS.Cobroup.Backend.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 var operationsConnectionString = builder.Configuration.GetConnectionString("OperationsDatabase")
@@ -48,6 +50,10 @@ builder.Services.AddScoped<ILoanRepository, EfLoanRepository>();
 builder.Services.AddScoped<IPaymentRepository, EfPaymentRepository>();
 builder.Services.AddScoped<IAgendaRepository, EfAgendaRepository>();
 
+if (!builder.Environment.IsDevelopment() && string.IsNullOrWhiteSpace(builder.Configuration["Storage:EvidencePath"]))
+{
+    throw new InvalidOperationException("Storage:EvidencePath is required in non-development environments for durable shared evidence storage.");
+}
 builder.Services.AddSingleton<MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService, MS.Cobroup.Backend.Infrastructure.Storage.LocalFileStorageService>();
 
 builder.Services.AddDbContext<OperationsDbContext>(options =>
@@ -57,6 +63,9 @@ builder.Services.AddDbContext<OperationsDbContext>(options =>
         postgres.MigrationsHistoryTable("__EFMigrationsHistory", "operations");
     }));
 
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<CorrelationIdDelegatingHandler>();
+
 builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirectoryClient>((services, client) =>
 {
     var configuration = services.GetRequiredService<IConfiguration>();
@@ -64,7 +73,7 @@ builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirector
         ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
-});
+}).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
 builder.Services.AddHttpClient<IAdministrativeLoanTemplateDirectory, AdminLoanTemplateDirectoryClient>((services, client) =>
 {
@@ -73,7 +82,7 @@ builder.Services.AddHttpClient<IAdministrativeLoanTemplateDirectory, AdminLoanTe
         ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
-});
+}).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
 builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentMethodDirectoryClient>((services, client) =>
 {
@@ -82,36 +91,39 @@ builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentM
         ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
-});
+}).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
-builder.Services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+builder.Services.AddHttpClient<IJwksValidationService, JwksValidationService>();
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+        options.SaveToken = true;
+    });
+
+builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+    .Configure<IServiceProvider>((options, sp) =>
+    {
+        var jwksService = sp.GetRequiredService<IJwksValidationService>();
+        options.TokenValidationParameters = jwksService.TokenValidationParameters;
+    });
+
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("tenant-user", policy =>
     {
-        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
-        policy.RequireClaim(OpenIddictConstants.Claims.Subject);
         policy.RequireClaim("organization_id");
     });
     options.AddPolicy("tenant-admin", policy =>
     {
-        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
-        policy.RequireClaim(OpenIddictConstants.Claims.Subject);
         policy.RequireClaim("organization_id");
         policy.RequireRole(UserRole.Admin.ToString());
     });
-});
-
-builder.Services.AddOpenIddict().AddValidation(options =>
-{
-    var issuer = builder.Configuration["Identity:Issuer"]
-        ?? throw new InvalidOperationException("Identity:Issuer is required.");
-    options.SetIssuer(new Uri(issuer, UriKind.Absolute));
-    options.AddAudiences("cobroup-api");
-    options.UseSystemNetHttp();
-    options.UseAspNetCore();
 });
 
 var app = builder.Build();
@@ -120,8 +132,19 @@ var forwardedOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
 };
-forwardedOptions.KnownIPNetworks.Clear();
-forwardedOptions.KnownProxies.Clear();
+var knownProxiesConfig = builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>()
+    ?? ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1"];
+foreach (var proxy in knownProxiesConfig)
+{
+    if (System.Net.IPAddress.TryParse(proxy, out var ip))
+    {
+        forwardedOptions.KnownProxies.Add(ip);
+    }
+    else if (System.Net.IPNetwork.TryParse(proxy, out var network))
+    {
+        forwardedOptions.KnownIPNetworks.Add(network);
+    }
+}
 app.UseForwardedHeaders(forwardedOptions);
 
 app.Use(async (context, next) =>

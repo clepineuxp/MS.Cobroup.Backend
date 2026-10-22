@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using OpenIddict.Abstractions;
 
 namespace MS.Cobroup.Backend.Api.Controllers;
 
@@ -13,11 +12,11 @@ public sealed class SessionController : ControllerBase
     [HttpGet("me")]
     public IActionResult GetCurrentSession() => Ok(new
     {
-        userId = User.FindFirstValue(OpenIddictConstants.Claims.Subject),
+        userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub") ?? User.FindFirstValue("user_id"),
         organizationId = User.FindFirstValue("organization_id"),
         organizationCode = User.FindFirstValue("organization_code"),
-        username = User.FindFirstValue(OpenIddictConstants.Claims.PreferredUsername),
-        displayName = User.FindFirstValue(OpenIddictConstants.Claims.Name),
-        role = User.FindFirstValue(OpenIddictConstants.Claims.Role)
+        username = User.FindFirstValue(ClaimTypes.Name) ?? User.FindFirstValue("preferred_username") ?? User.FindFirstValue("unique_name"),
+        displayName = User.FindFirstValue(ClaimTypes.Name) ?? User.FindFirstValue("name"),
+        role = User.FindFirstValue(ClaimTypes.Role) ?? User.FindFirstValue("role")
     });
 }

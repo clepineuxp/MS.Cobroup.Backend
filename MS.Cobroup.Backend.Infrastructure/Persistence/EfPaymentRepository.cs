@@ -49,7 +49,7 @@ public sealed class EfPaymentRepository(OperationsDbContext dbContext) : IPaymen
         await dbContext.Payments
             .AsNoTracking()
             .Include(p => p.Allocations)
-            .Where(p => p.TenantId == tenantId && p.RouteId == routeId && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc <= toUtc)
+            .Where(p => p.TenantId == tenantId && p.RouteId == routeId && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc < toUtc)
             .OrderBy(p => p.RegisteredAtUtc)
             .ToArrayAsync(cancellationToken);
 

@@ -199,7 +199,7 @@ public sealed class PaymentService(
 
         var tz = GetTenantTimeZone();
         var startLocal = date.ToDateTime(TimeOnly.MinValue);
-        var endLocal = date.ToDateTime(TimeOnly.MaxValue);
+        var endLocal = date.AddDays(1).ToDateTime(TimeOnly.MinValue);
         var startUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(startLocal, tz), TimeSpan.Zero);
         var endUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(endLocal, tz), TimeSpan.Zero);
 
@@ -274,7 +274,15 @@ public sealed class PaymentService(
             actor.UserId,
             DateTimeOffset.UtcNow);
 
-        await paymentRepository.AddEvidenceAsync(evidence, cancellationToken);
+        try
+        {
+            await paymentRepository.AddEvidenceAsync(evidence, cancellationToken);
+        }
+        catch
+        {
+            await fileStorageService.DeleteEvidenceAsync(actor.TenantId, stored.StoragePath, CancellationToken.None);
+            throw;
+        }
 
         var loan = await loanRepository.FindAsync(actor.TenantId, payment.LoanId, cancellationToken);
         return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan?.Terms.BalanceAmount ?? 0m, loan?.Status ?? LoanStatus.Active));

@@ -2,7 +2,7 @@
 
 ## Identidad y autorización
 
-Los tokens futuros deberán aportar `sub`, `tenant_id`, roles y vigencia. La API resolverá internamente el alcance de rutas; no confiará en un `tenant_id` enviado como parámetro. Roles canónicos: `ADMIN`, `SUPERVISOR`, `COLLECTOR`.
+La API acepta únicamente access tokens JWT asimétricos emitidos por BackendAdmin para audiencia `cobroup-api`. Deben aportar `typ=access`, `sub`, `iss`, `aud`, `exp`, `iat`, `nbf`, `jti`, `organization_id` y rol. La API valida firma, algoritmo, `kid`, emisor, audiencia y vigencia antes de resolver el alcance; no confía en un tenant enviado como parámetro. Roles canónicos: `ADMIN`, `SUPERVISOR`, `COLLECTOR`. Ver `../../../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
 
 ## Contratos consumidores
 

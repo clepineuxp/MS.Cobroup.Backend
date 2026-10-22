@@ -1,7 +1,6 @@
 using System.Security.Claims;
 using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Domain.Authorization;
-using OpenIddict.Abstractions;
 
 namespace MS.Cobroup.Backend.Api.Security;
 
@@ -9,9 +8,13 @@ public static class CustomerActorReader
 {
     public static bool TryRead(ClaimsPrincipal principal, out CustomerActor actor)
     {
-        var subject = principal.FindFirstValue(OpenIddictConstants.Claims.Subject);
+        var subject = principal.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? principal.FindFirstValue("sub")
+            ?? principal.FindFirstValue("user_id");
         var tenant = principal.FindFirstValue("organization_id");
-        var role = principal.FindFirstValue(OpenIddictConstants.Claims.Role);
+        var role = principal.FindFirstValue(ClaimTypes.Role)
+            ?? principal.FindFirstValue("role");
+
         if (!Guid.TryParse(subject, out var userId)
             || !Guid.TryParse(tenant, out var tenantId)
             || !Enum.TryParse<UserRole>(role, true, out var parsedRole))

@@ -4,19 +4,28 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.6.0.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.7.0 y `../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-9-endurecimiento-despliegue`.
+- Rama activa observada: `feature/solucion-hallazgos-iniciales`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
 - Fase: 9
-- Resultado: COMPLETADA_FUNCIONALMENTE
+- Resultado: IDENTIDAD_JWT_REABIERTA_PARA_ADECUACION_Y_AUDITORIA
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
-- Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 9 completas (100%). Informe: `../cobroup.md/informe/avance.md` 2.0.0.
-- Corte actual: Fase 8 cerrada en Git (`cf65b00`); Fase 9 completada: health checks nativos (`/health/live`, `/health/ready` con `OperationsDatabaseHealthCheck` sobre PostgreSQL), `UseForwardedHeaders` para Ingress Traefik, cabeceras de seguridad HTTP (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`), Correlation ID (`X-Correlation-ID`), `Dockerfile` multi-stage no root (`1000:1000`) en puerto 8080, workflow CI/CD `.github/workflows/ci-cd.yml` para K3s (`cobroup-dev`, `cobroup-qa`, `cobroup-prod`) con GHCR y SSH; build Release 0 warnings/errores; 106 pruebas en verde.
+- Auditoría independiente: realizada el 2026-10-22; resultado técnico NO APROBADO.
+- Línea base funcional versionada; autenticación JWT exclusiva pendiente de conformidad. Auditoría técnica: `../cobroup.md/informe/auditoria-backend-csharp-2026-10-22-v2.html`; adenda vigente: `../cobroup.md/informe/linea-base-auditoria-jwt-2026-10-22.html`.
+- Corte actual: el árbol contiene cambios JWT sin commit. No se autoriza cierre, commit ni despliegue por el solo hecho de compilar.
+
+## Decisión vigente de autenticación
+
+- Se usarán exclusivamente access y refresh tokens JWT conforme a `../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
+- Este servicio no autentica contraseñas, no emite tokens y no recibe la clave privada. Valida firma asimétrica, `kid`, issuer, audience, tipo, tiempos y claims obligatorios mediante claves públicas rotables.
+- Se prohíben secretos HMAC compartidos, claves/defaults de respaldo, `ValidateIssuer=false`, `ValidateAudience=false` y aceptación de algoritmos no autorizados.
+- El access token vive solo en memoria del frontend. El refresh JWT viaja únicamente en cookie HttpOnly/Secure/SameSite y nunca en Web Storage, cuerpo persistente o base de datos en claro.
+- Toda operación mantiene autorización tenant/rol/recurso aunque el JWT sea válido.
+- Las referencias de identidad anteriores dentro del historial append-only son evidencia histórica y están supersedidas; no son planeación ni criterio de aceptación vigente.
 
 ## Historial cronológico (append-only)
 
@@ -200,4 +209,25 @@
   - 106 pruebas en verde: Core 81/81, Infrastructure 25/25.
   - Compilación Release con 0 warnings y 0 errores.
 - Git: rama `feature/fase-9-endurecimiento-despliegue`; push, merge, tag y PR no autorizados.
+
+### 2026-10-22 — Rebaselining auditor de identidad JWT
+
+- Prompt: formalizar en toda la planeación la decisión de usar exclusivamente JWT y retirar el mecanismo anterior, actuando solo como auditor.
+- Decisión: BackendAdmin es el único emisor; este backend solo valida access JWT asimétricos mediante JWKS. La fase 2 queda reabierta.
+- Documentación: maestro 1.7.0, decisión JWT, README, contexto, contrato, ADR, roadmap, avance y adenda HTML alineados.
+- Auditoría: el contrato queda aprobado; la implementación actual sigue NO APROBADA y debe demostrar validación estricta, rotación de claves, tenant/rol/recurso y pruebas negativas.
+- Verificación: búsqueda transversal sin referencias normativas activas al mecanismo retirado; los informes y entradas históricas se conservaron como evidencia.
+- Git: no se modificó código en esta actividad y no se creó commit, push, merge, tag ni PR.
+
+### 2026-10-22 — Implementación de validación JWKS asimétrica, evidencias streaming y remediación de hallazgos (Bloques E, F, G)
+
+- Validación JWT asimétrica (B-02, B-03): implementado `JwksValidationService` que consume `GET /api/v1/auth/.well-known/jwks.json` de BackendAdmin. Validación estricta de firma RS256, audience `cobroup-api`, issuer HTTPS y claims obligatorios (`organization_id`, `role`, `typ=access`). Este backend operativo nunca recibe la clave privada.
+- Aislamiento y streaming de evidencias (B-08, B-09, I-05): eliminado endpoint legado `POST {paymentId}/evidence` y DTO `AttachPaymentEvidenceRequest`. Solo se permite creación mediante `POST {paymentId}/evidence/upload` con streaming en bloques, límite de 10 MB aplicado durante lectura, hash SHA-256 incremental y magic bytes. En caso de fallo en BD, se compensa eliminando el archivo con `DeleteEvidenceAsync`.
+- Autorización de descarga por ruta (B-09): `DownloadEvidence` valida que el actor tenga acceso explícito a la ruta del cobro mediante `routeDirectory.ListAccessibleAsync` antes de servir el archivo.
+- Aprobación de excepciones de crédito (B-10): en `LoanService`, se exige coincidencia exacta del plazo aprobado (`scheduleDurationDays != exception.ProposedDays`), rechazando plazos menores y mayores.
+- Zona horaria IANA e intervalos semiabiertos (I-06): conciliación diaria y agenda ajustadas a intervalos semiabiertos `[startUtc, endUtc)`.
+- Propagación de Correlation ID (I-12): middleware asigna/reutiliza `X-Correlation-ID` y `CorrelationIdDelegatingHandler` lo propaga en clientes HTTP hacia BackendAdmin.
+- Validación: 106/106 pruebas unitarias y de integración pasando en verde (Core 81/81, Infrastructure 25/25), build Release 0 warnings/errores, 0 cambios pendientes de modelo EF Core.
+- Git: cambios preservados en el working tree sin commit, push, merge, tag ni PR.
+
 

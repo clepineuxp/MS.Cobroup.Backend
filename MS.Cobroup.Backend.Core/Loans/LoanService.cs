@@ -119,9 +119,9 @@ public sealed class LoanService(
                 return LoanResult.Invalid($"La tasa ({input.InterestRate:N2}%) debe coincidir con la tasa aprobada en la excepción ({exception.ProposedPercentage:N2}%).");
             }
 
-            if (scheduleDurationDays > exception.ProposedDays)
+            if (scheduleDurationDays != exception.ProposedDays)
             {
-                return LoanResult.Invalid($"La duración del cronograma ({scheduleDurationDays} días calendario) supera el plazo aprobado en la excepción ({exception.ProposedDays} días).");
+                return LoanResult.Invalid($"La duración del cronograma ({scheduleDurationDays} días calendario) debe coincidir exactamente con el plazo aprobado en la excepción ({exception.ProposedDays} días).");
             }
 
             exceptionRequestId = exception.Id;

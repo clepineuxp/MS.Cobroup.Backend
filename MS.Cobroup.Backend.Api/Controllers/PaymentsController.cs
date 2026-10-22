@@ -11,6 +11,7 @@ namespace MS.Cobroup.Backend.Api.Controllers;
 public sealed class PaymentsController(
     PaymentService service,
     IOperationalPaymentMethodDirectory paymentMethodDirectory,
+    Domain.Interfaces.Directories.IAdministrativeRouteDirectory routeDirectory,
     Domain.Interfaces.Services.IFileStorageService fileStorageService,
     IPaymentRepository paymentRepository) : ControllerBase
 {
@@ -150,6 +151,22 @@ public sealed class PaymentsController(
             return Unauthorized();
         }
 
+        var payment = await paymentRepository.FindAsync(actor.TenantId, paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return NotFound();
+        }
+
+        if (actor.Role is not Domain.Authorization.UserRole.Admin)
+        {
+            var token = CustomerActorReader.ReadBearerToken(Request);
+            var routes = await routeDirectory.ListAccessibleAsync(token, cancellationToken);
+            if (routes.Outcome is not RouteDirectoryOutcome.Success || routes.Routes.All(r => r.Id != payment.RouteId))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tiene autorización para acceder a las evidencias de esta ruta." });
+            }
+        }
+
         var evidence = await paymentRepository.FindEvidenceAsync(actor.TenantId, paymentId, evidenceId, cancellationToken);
         if (evidence is null || evidence.IsDeleted)
         {
@@ -163,30 +180,6 @@ public sealed class PaymentsController(
         }
 
         return File(stream, evidence.ContentType, evidence.FileName);
-    }
-
-    [HttpPost("{paymentId:guid}/evidence")]
-    public async Task<IActionResult> AttachEvidence(
-        [FromRoute] Guid paymentId,
-        [FromBody] AttachPaymentEvidenceRequest request,
-        CancellationToken cancellationToken)
-    {
-        if (!CustomerActorReader.TryRead(User, out var actor))
-        {
-            return Unauthorized();
-        }
-
-        var result = await service.AttachEvidenceAsync(
-            actor,
-            paymentId,
-            request.FileName,
-            request.ContentType,
-            request.ByteSize,
-            request.StoragePath,
-            CustomerActorReader.ReadBearerToken(Request),
-            cancellationToken);
-
-        return MapResult(result);
     }
 
     [HttpDelete("{paymentId:guid}/evidence/{evidenceId:guid}")]
@@ -238,12 +231,6 @@ public sealed record RegisterPaymentRequest(
     Guid PaymentMethodId,
     string? Notes,
     string IdempotencyKey);
-
-public sealed record AttachPaymentEvidenceRequest(
-    string FileName,
-    string ContentType,
-    long ByteSize,
-    string StoragePath);
 
 public sealed record DeletePaymentEvidenceRequest(
     string Reason);

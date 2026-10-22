@@ -14,6 +14,11 @@ public interface IFileStorageService
         Guid tenantId,
         string storagePath,
         CancellationToken cancellationToken);
+
+    Task DeleteEvidenceAsync(
+        Guid tenantId,
+        string storagePath,
+        CancellationToken cancellationToken);
 }
 
 public sealed record StoredFileResult(

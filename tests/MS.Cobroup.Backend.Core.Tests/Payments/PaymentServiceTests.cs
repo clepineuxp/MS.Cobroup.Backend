@@ -423,5 +423,13 @@ public sealed class PaymentServiceTests
         {
             return Task.FromResult<Stream?>(new MemoryStream([1, 2, 3]));
         }
+
+        public Task DeleteEvidenceAsync(
+            Guid tenantId,
+            string storagePath,
+            CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
+        }
     }
 }
