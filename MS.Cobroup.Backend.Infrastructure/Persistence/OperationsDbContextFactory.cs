@@ -8,7 +8,7 @@ public sealed class OperationsDbContextFactory : IDesignTimeDbContextFactory<Ope
     public OperationsDbContext CreateDbContext(string[] args)
     {
         var optionsBuilder = new DbContextOptionsBuilder<OperationsDbContext>();
-        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__OperationsConnection")
+        var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__OperationsDatabase")
             ?? "Host=localhost;Database=operations_design;Username=postgres;Password=postgres";
         optionsBuilder.UseNpgsql(connectionString);
         return new OperationsDbContext(optionsBuilder.Options);

@@ -136,6 +136,12 @@ public sealed class RealDatabaseCustomerRepositoryTests
 
     private static string ReadOperationsConnectionStringOrSkip()
     {
+        var configuredConnection = Environment.GetEnvironmentVariable("ConnectionStrings__OperationsDatabase");
+        if (!string.IsNullOrWhiteSpace(configuredConnection))
+        {
+            return configuredConnection;
+        }
+
         var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
         var secretsPath = Path.Combine(appData, "Microsoft", "UserSecrets", UserSecretsId, "secrets.json");
         if (!File.Exists(secretsPath))

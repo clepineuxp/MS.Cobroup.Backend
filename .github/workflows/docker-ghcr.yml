@@ -19,6 +19,22 @@ jobs:
   test:
     name: Run Automated Tests
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_DB: cobroup_operations_tests
+          POSTGRES_USER: cobroup_tests
+          POSTGRES_PASSWORD: ephemeral_ci_tests
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U cobroup_tests -d cobroup_operations_tests"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      ConnectionStrings__OperationsDatabase: Host=localhost;Port=5432;Database=cobroup_operations_tests;Username=cobroup_tests;Password=ephemeral_ci_tests
     steps:
       - name: 1. Checkout Code
         uses: actions/checkout@v4
@@ -33,6 +49,11 @@ jobs:
 
       - name: 4. Build Solution
         run: dotnet build MS.Cobroup.Backend.slnx -c Release --no-restore
+
+      - name: Prepare integration database
+        run: |
+          dotnet tool restore
+          dotnet ef database update --project MS.Cobroup.Backend.Infrastructure --startup-project MS.Cobroup.Backend.Api --configuration Release --no-build
 
       - name: 5. Execute Tests
         run: dotnet test MS.Cobroup.Backend.slnx -c Release --no-build --verbosity normal
