@@ -370,6 +370,28 @@ public sealed class LoanServiceTests
             return Task.CompletedTask;
         }
 
+        public Task<LoanSaveOutcome> TryAddAsync(
+            Loan loan,
+            int? maxActiveLoans,
+            Guid? consumedExceptionId,
+            CancellationToken cancellationToken)
+        {
+            if (maxActiveLoans.HasValue)
+            {
+                var active = ActiveLoanCountsByRoute.TryGetValue((loan.TenantId, loan.RouteId), out var count)
+                    ? count
+                    : loans.Count(l => l.TenantId == loan.TenantId && l.RouteId == loan.RouteId && l.Status == LoanStatus.Active);
+
+                if (active >= maxActiveLoans.Value)
+                {
+                    return Task.FromResult(LoanSaveOutcome.CapacityReached);
+                }
+            }
+
+            loans.Add(loan);
+            return Task.FromResult(LoanSaveOutcome.Saved);
+        }
+
         public Task<int> CountActiveLoansByRouteAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken)
         {
             if (ActiveLoanCountsByRoute.TryGetValue((tenantId, routeId), out var count))

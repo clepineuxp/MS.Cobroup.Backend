@@ -14,6 +14,61 @@ public sealed class EfLoanRepository(OperationsDbContext dbContext) : ILoanRepos
     public async Task AddAsync(Loan loan, CancellationToken cancellationToken) =>
         await dbContext.Loans.AddAsync(loan, cancellationToken);
 
+    public async Task<LoanSaveOutcome> TryAddAsync(
+        Loan loan,
+        int? maxActiveLoans,
+        Guid? consumedExceptionId,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var routeKey = BitConverter.ToInt64(loan.RouteId.ToByteArray(), 0);
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({routeKey})",
+                cancellationToken);
+
+            if (maxActiveLoans.HasValue)
+            {
+                var activeCount = await dbContext.Loans.CountAsync(
+                    l => l.TenantId == loan.TenantId && l.RouteId == loan.RouteId && l.Status == LoanStatus.Active,
+                    cancellationToken);
+
+                if (activeCount >= maxActiveLoans.Value)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return LoanSaveOutcome.CapacityReached;
+                }
+            }
+
+            if (consumedExceptionId.HasValue)
+            {
+                var exception = await dbContext.LoanExceptionRequests
+                    .SingleOrDefaultAsync(
+                        e => e.TenantId == loan.TenantId && e.Id == consumedExceptionId.Value,
+                        cancellationToken);
+
+                if (exception is null || exception.IsConsumed || exception.Status != Domain.LoanExceptions.LoanExceptionStatus.Approved)
+                {
+                    await transaction.RollbackAsync(cancellationToken);
+                    return LoanSaveOutcome.ExceptionAlreadyConsumed;
+                }
+
+                exception.Consume(loan.Id, loan.CreatedAtUtc);
+            }
+
+            dbContext.Loans.Add(loan);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return LoanSaveOutcome.Saved;
+        }
+        catch (DbUpdateException exception) when (exception.InnerException is Npgsql.PostgresException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return LoanSaveOutcome.Conflict;
+        }
+    }
+
     public Task<int> CountActiveLoansByRouteAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken) =>
         dbContext.Loans
             .CountAsync(l => l.TenantId == tenantId && l.RouteId == routeId && l.Status == LoanStatus.Active, cancellationToken);

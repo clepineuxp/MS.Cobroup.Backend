@@ -174,13 +174,13 @@ public sealed class EfAgendaRepositoryTests
             throw SkipException.ForSkip("The local OperationsDatabase user secret is unavailable.");
         }
 
-        using var document = JsonDocument.Parse(File.ReadAllText(secretsPath));
-        if (!document.RootElement.TryGetProperty("ConnectionStrings:OperationsDatabase", out var value)
-            || string.IsNullOrWhiteSpace(value.GetString()))
+        var text = File.ReadAllText(secretsPath);
+        var match = System.Text.RegularExpressions.Regex.Match(text, @"""ConnectionStrings:OperationsDatabase""\s*:\s*""([^""]+)""");
+        if (!match.Success || string.IsNullOrWhiteSpace(match.Groups[1].Value))
         {
             throw SkipException.ForSkip("The local OperationsDatabase connection string is unavailable.");
         }
 
-        return value.GetString()!;
+        return match.Groups[1].Value;
     }
 }

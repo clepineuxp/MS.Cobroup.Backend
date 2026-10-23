@@ -65,19 +65,16 @@ public sealed class LoanService(
             return LoanResult.Invalid("No se puede originar un préstamo para un cliente inactivo.");
         }
 
-        // Validate route active loans quota
-        if (accessibleRoute.MaxActiveLoans.HasValue)
-        {
-            var activeLoansCount = await loanRepository.CountActiveLoansByRouteAsync(
-                command.Actor.TenantId,
-                customer.RouteId,
-                cancellationToken);
+        // Calculate schedule early to check duration
+        var schedule = LoanScheduleCalculator.Calculate(
+            input.PrincipalAmount,
+            input.InterestRate,
+            input.PaymentFrequency,
+            input.FrequencyNDays,
+            input.InstallmentCount,
+            input.StartDate);
 
-            if (activeLoansCount >= accessibleRoute.MaxActiveLoans.Value)
-            {
-                return LoanResult.Conflict("El cupo de préstamos activos para esta ruta ha sido alcanzado.");
-            }
-        }
+        var scheduleDurationDays = schedule.DueDate.DayNumber - input.StartDate.DayNumber;
 
         Guid? templateId = null;
         int? templateVersion = null;
@@ -96,10 +93,35 @@ public sealed class LoanService(
                 return LoanResult.Invalid("La solicitud de excepción no corresponde a este cliente.");
             }
 
+            if (exception.RouteId != customer.RouteId)
+            {
+                return LoanResult.Invalid("La solicitud de excepción no corresponde a la ruta del cliente.");
+            }
+
             // AC-08: Exception must be approved by Admin
             if (exception.Status != LoanExceptionStatus.Approved)
             {
                 return LoanResult.Invalid("La solicitud de excepción no ha sido aprobada.");
+            }
+
+            if (exception.IsConsumed)
+            {
+                return LoanResult.Invalid("La solicitud de excepción ya ha sido consumida por otro préstamo.");
+            }
+
+            if (input.PrincipalAmount != exception.ProposedAmount)
+            {
+                return LoanResult.Invalid($"El monto solicitado ({input.PrincipalAmount:N2}) debe coincidir exactamente con el monto aprobado en la excepción ({exception.ProposedAmount:N2}).");
+            }
+
+            if (input.InterestRate != exception.ProposedPercentage)
+            {
+                return LoanResult.Invalid($"La tasa ({input.InterestRate:N2}%) debe coincidir con la tasa aprobada en la excepción ({exception.ProposedPercentage:N2}%).");
+            }
+
+            if (scheduleDurationDays != exception.ProposedDays)
+            {
+                return LoanResult.Invalid($"La duración del cronograma ({scheduleDurationDays} días calendario) debe coincidir exactamente con el plazo aprobado en la excepción ({exception.ProposedDays} días).");
             }
 
             exceptionRequestId = exception.Id;
@@ -124,9 +146,10 @@ public sealed class LoanService(
                 return LoanResult.Invalid($"El monto solicitado ({input.PrincipalAmount:N2}) supera el máximo permitido por la plantilla ({template.MaxPrincipalAmount:N2}). Requiere solicitar una excepción.");
             }
 
-            if (input.InstallmentCount > template.MaxLoanDays)
+            // I-08: MaxLoanDays compared to schedule duration in calendar days, not installment count
+            if (scheduleDurationDays > template.MaxLoanDays)
             {
-                return LoanResult.Invalid($"El plazo solicitado ({input.InstallmentCount} días/cuotas) supera el máximo de la plantilla ({template.MaxLoanDays}). Requiere solicitar una excepción.");
+                return LoanResult.Invalid($"La duración del cronograma ({scheduleDurationDays} días calendario) supera el plazo máximo de la plantilla ({template.MaxLoanDays} días). Requiere solicitar una excepción.");
             }
 
             if (!template.AllowedPercentages.Contains(input.InterestRate))
@@ -141,15 +164,6 @@ public sealed class LoanService(
         {
             return LoanResult.Invalid("Debe seleccionar una plantilla publicada o una solicitud de excepción aprobada.");
         }
-
-        // Calculate schedule
-        var schedule = LoanScheduleCalculator.Calculate(
-            input.PrincipalAmount,
-            input.InterestRate,
-            input.PaymentFrequency,
-            input.FrequencyNDays,
-            input.InstallmentCount,
-            input.StartDate);
 
         var now = DateTimeOffset.UtcNow;
         var startsAtUtc = new DateTimeOffset(input.StartDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
@@ -189,8 +203,27 @@ public sealed class LoanService(
             now,
             installments);
 
-        await loanRepository.AddAsync(loan, cancellationToken);
-        await loanRepository.SaveChangesAsync(cancellationToken);
+        // Atomic Check-and-Insert with route quota and exception consumption
+        var outcome = await loanRepository.TryAddAsync(
+            loan,
+            accessibleRoute.MaxActiveLoans,
+            exceptionRequestId,
+            cancellationToken);
+
+        if (outcome is LoanSaveOutcome.CapacityReached)
+        {
+            return LoanResult.Conflict("El cupo de préstamos activos para esta ruta ha sido alcanzado.");
+        }
+
+        if (outcome is LoanSaveOutcome.ExceptionAlreadyConsumed)
+        {
+            return LoanResult.Invalid("La solicitud de excepción ya ha sido consumida por otro préstamo.");
+        }
+
+        if (outcome is LoanSaveOutcome.Conflict)
+        {
+            return LoanResult.Conflict("Existe un conflicto de concurrencia al originar el préstamo.");
+        }
 
         var customerName = $"{customer.FirstNames} {customer.LastNames}".Trim();
         return LoanResult.Created(ToDetails(loan, customerName, accessibleRoute.Name));

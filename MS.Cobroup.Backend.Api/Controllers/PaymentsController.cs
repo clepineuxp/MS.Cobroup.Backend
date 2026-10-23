@@ -10,7 +10,10 @@ namespace MS.Cobroup.Backend.Api.Controllers;
 [Authorize(Policy = "tenant-user")]
 public sealed class PaymentsController(
     PaymentService service,
-    IOperationalPaymentMethodDirectory paymentMethodDirectory) : ControllerBase
+    IOperationalPaymentMethodDirectory paymentMethodDirectory,
+    Domain.Interfaces.Directories.IAdministrativeRouteDirectory routeDirectory,
+    Domain.Interfaces.Services.IFileStorageService fileStorageService,
+    IPaymentRepository paymentRepository) : ControllerBase
 {
     [HttpGet("payment-methods")]
     public async Task<IActionResult> ListPaymentMethods(CancellationToken cancellationToken)
@@ -107,10 +110,11 @@ public sealed class PaymentsController(
         }
     }
 
-    [HttpPost("{paymentId:guid}/evidence")]
-    public async Task<IActionResult> AttachEvidence(
+    [HttpPost("{paymentId:guid}/evidence/upload")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadEvidence(
         [FromRoute] Guid paymentId,
-        [FromBody] AttachPaymentEvidenceRequest request,
+        IFormFile file,
         CancellationToken cancellationToken)
     {
         if (!CustomerActorReader.TryRead(User, out var actor))
@@ -118,17 +122,64 @@ public sealed class PaymentsController(
             return Unauthorized();
         }
 
-        var result = await service.AttachEvidenceAsync(
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new { message = "El archivo de imagen es requerido." });
+        }
+
+        await using var stream = file.OpenReadStream();
+        var result = await service.StoreAndAttachEvidenceAsync(
             actor,
             paymentId,
-            request.FileName,
-            request.ContentType,
-            request.ByteSize,
-            request.StoragePath,
+            file.FileName,
+            file.ContentType,
+            stream,
             CustomerActorReader.ReadBearerToken(Request),
             cancellationToken);
 
         return MapResult(result);
+    }
+
+    [HttpGet("{paymentId:guid}/evidence/{evidenceId:guid}/download")]
+    public async Task<IActionResult> DownloadEvidence(
+        [FromRoute] Guid paymentId,
+        [FromRoute] Guid evidenceId,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var payment = await paymentRepository.FindAsync(actor.TenantId, paymentId, cancellationToken);
+        if (payment is null)
+        {
+            return NotFound();
+        }
+
+        if (actor.Role is not Domain.Authorization.UserRole.Admin)
+        {
+            var token = CustomerActorReader.ReadBearerToken(Request);
+            var routes = await routeDirectory.ListAccessibleAsync(token, cancellationToken);
+            if (routes.Outcome is not RouteDirectoryOutcome.Success || routes.Routes.All(r => r.Id != payment.RouteId))
+            {
+                return StatusCode(StatusCodes.Status403Forbidden, new { message = "No tiene autorización para acceder a las evidencias de esta ruta." });
+            }
+        }
+
+        var evidence = await paymentRepository.FindEvidenceAsync(actor.TenantId, paymentId, evidenceId, cancellationToken);
+        if (evidence is null || evidence.IsDeleted)
+        {
+            return NotFound();
+        }
+
+        var stream = await fileStorageService.ReadEvidenceAsync(actor.TenantId, evidence.StoragePath, cancellationToken);
+        if (stream is null)
+        {
+            return NotFound();
+        }
+
+        return File(stream, evidence.ContentType, evidence.FileName);
     }
 
     [HttpDelete("{paymentId:guid}/evidence/{evidenceId:guid}")]
@@ -180,12 +231,6 @@ public sealed record RegisterPaymentRequest(
     Guid PaymentMethodId,
     string? Notes,
     string IdempotencyKey);
-
-public sealed record AttachPaymentEvidenceRequest(
-    string FileName,
-    string ContentType,
-    long ByteSize,
-    string StoragePath);
 
 public sealed record DeletePaymentEvidenceRequest(
     string Reason);

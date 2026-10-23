@@ -8,6 +8,12 @@ public interface ILoanRepository
 
     Task AddAsync(Loan loan, CancellationToken cancellationToken);
 
+    Task<LoanSaveOutcome> TryAddAsync(
+        Loan loan,
+        int? maxActiveLoans,
+        Guid? consumedExceptionId,
+        CancellationToken cancellationToken);
+
     Task<int> CountActiveLoansByRouteAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken);
 
     Task<IReadOnlyCollection<Loan>> ListByCustomerAsync(Guid tenantId, Guid customerId, CancellationToken cancellationToken);
@@ -23,6 +29,14 @@ public interface ILoanRepository
         CancellationToken cancellationToken);
 
     Task SaveChangesAsync(CancellationToken cancellationToken);
+}
+
+public enum LoanSaveOutcome
+{
+    Saved,
+    CapacityReached,
+    ExceptionAlreadyConsumed,
+    Conflict
 }
 
 public sealed record LoanSearchPage(

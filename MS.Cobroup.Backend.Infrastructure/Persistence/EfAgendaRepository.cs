@@ -56,13 +56,16 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
             .GroupBy(l => l.CustomerId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // Query payments registered on targetDate
-        var fromUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var toUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MaxValue), TimeSpan.Zero);
+        // Query payments registered on targetDate converting to local tenant timezone (defaulting to America/Bogota)
+        var tz = GetTenantTimeZone();
+        var startLocal = targetDate.ToDateTime(TimeOnly.MinValue);
+        var endLocal = targetDate.AddDays(1).ToDateTime(TimeOnly.MinValue);
+        var fromUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(startLocal, tz), TimeSpan.Zero);
+        var toUtc = new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(endLocal, tz), TimeSpan.Zero);
 
         var payments = await dbContext.Payments
             .AsNoTracking()
-            .Where(p => p.TenantId == tenantId && customerIds.Contains(p.CustomerId) && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc <= toUtc)
+            .Where(p => p.TenantId == tenantId && customerIds.Contains(p.CustomerId) && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc < toUtc)
             .ToListAsync(cancellationToken);
 
         var paymentsByCustomer = payments
@@ -246,5 +249,17 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
         }
 
         return result;
+    }
+
+    private static TimeZoneInfo GetTenantTimeZone()
+    {
+        try
+        {
+            return TimeZoneInfo.FindSystemTimeZoneById("America/Bogota");
+        }
+        catch
+        {
+            return TimeZoneInfo.Utc;
+        }
     }
 }

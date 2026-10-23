@@ -20,12 +20,9 @@ ENV ASPNETCORE_URLS=http://+:8080 \
     ASPNETCORE_ENVIRONMENT=Production \
     DOTNET_RUNNING_IN_CONTAINER=true
 
-RUN addgroup --system --gid 1000 appgroup && \
-    adduser --system --uid 1000 --ingroup appgroup --shell /sbin/nologin appuser
+COPY --from=build --chown=app:app /app/publish .
 
-COPY --from=build --chown=appuser:appgroup /app/publish .
-
-USER appuser
+USER $APP_UID
 EXPOSE 8080
 
 ENTRYPOINT ["dotnet", "MS.Cobroup.Backend.Api.dll"]

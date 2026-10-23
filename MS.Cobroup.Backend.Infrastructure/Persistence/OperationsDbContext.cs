@@ -101,8 +101,12 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.Property(e => e.CreatedByRole).HasConversion<string>().HasMaxLength(16).IsRequired();
             entity.Property(e => e.DecisionNotes).HasMaxLength(500);
+            entity.Property(e => e.IsConsumed).IsRequired().HasDefaultValue(false);
+            entity.Property(e => e.ConsumedByLoanId);
+            entity.Property(e => e.ConsumedAtUtc);
             entity.HasIndex(e => new { e.TenantId, e.RouteId, e.Status });
             entity.HasIndex(e => new { e.TenantId, e.CustomerId, e.Status });
+            entity.HasIndex(e => new { e.TenantId, e.ConsumedByLoanId }).IsUnique().HasFilter("\"ConsumedByLoanId\" IS NOT NULL");
             entity.HasOne<Customer>()
                 .WithMany()
                 .HasForeignKey(e => e.CustomerId)
@@ -113,6 +117,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
         {
             entity.ToTable("loans");
             entity.HasKey(loan => loan.Id);
+            entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
             entity.Property(loan => loan.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.Property(loan => loan.CreatedByRole).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.ComplexProperty(loan => loan.Terms, terms =>
@@ -131,6 +136,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             });
             entity.HasIndex(loan => new { loan.TenantId, loan.RouteId, loan.Status });
             entity.HasIndex(loan => new { loan.TenantId, loan.CustomerId, loan.Status });
+            entity.HasIndex(loan => new { loan.TenantId, loan.ExceptionRequestId }).IsUnique().HasFilter("\"ExceptionRequestId\" IS NOT NULL");
             entity.HasOne<Customer>()
                 .WithMany()
                 .HasForeignKey(loan => loan.CustomerId)
@@ -146,6 +152,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
         {
             entity.ToTable("installments");
             entity.HasKey(installment => installment.Id);
+            entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
             entity.Property(installment => installment.ExpectedAmount).HasPrecision(18, 2).IsRequired();
             entity.Property(installment => installment.PaidAmount).HasPrecision(18, 2).IsRequired();
             entity.Property(installment => installment.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
@@ -195,6 +202,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property(e => e.FileName).HasMaxLength(255).IsRequired();
             entity.Property(e => e.ContentType).HasMaxLength(100).IsRequired();
             entity.Property(e => e.StoragePath).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.FileHashSha256).HasMaxLength(64).IsRequired();
             entity.Property(e => e.DeletionReason).HasMaxLength(500);
             entity.HasIndex(e => new { e.TenantId, e.PaymentId, e.IsDeleted });
         });

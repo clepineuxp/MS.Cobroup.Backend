@@ -1,8 +1,11 @@
+using System.Text;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.IdentityModel.Tokens;
 using MS.Cobroup.Backend.Api.Health;
 using MS.Cobroup.Backend.Core.Agenda;
 using MS.Cobroup.Backend.Core.Customers;
@@ -19,8 +22,7 @@ using MS.Cobroup.Backend.Infrastructure.LoanTemplates;
 using MS.Cobroup.Backend.Infrastructure.Payments;
 using MS.Cobroup.Backend.Infrastructure.Persistence;
 using MS.Cobroup.Backend.Infrastructure.Routes;
-using OpenIddict.Abstractions;
-using OpenIddict.Validation.AspNetCore;
+using MS.Cobroup.Backend.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
 var operationsConnectionString = builder.Configuration.GetConnectionString("OperationsDatabase")
@@ -48,12 +50,50 @@ builder.Services.AddScoped<ILoanRepository, EfLoanRepository>();
 builder.Services.AddScoped<IPaymentRepository, EfPaymentRepository>();
 builder.Services.AddScoped<IAgendaRepository, EfAgendaRepository>();
 
+var storageSection = builder.Configuration.GetSection(MS.Cobroup.Backend.Infrastructure.Storage.FileSystemStorageOptions.SectionName);
+var storageProvider = storageSection["Provider"] ?? "FileSystem";
+
+if (string.Equals(storageProvider, "S3", StringComparison.OrdinalIgnoreCase))
+{
+    throw new NotSupportedException("El proveedor de almacenamiento 'S3' está previsto para una fase futura de evolución arquitectónica y no está habilitado en la presente versión.");
+}
+
+if (!string.Equals(storageProvider, "FileSystem", StringComparison.OrdinalIgnoreCase))
+{
+    throw new InvalidOperationException($"Proveedor de almacenamiento desconocido '{storageProvider}'. Solo 'FileSystem' está soportado actualmente.");
+}
+
+var evidenceRootPath = storageSection["EvidencePath"] ?? storageSection["RootPath"];
+if (string.IsNullOrWhiteSpace(evidenceRootPath))
+{
+    if (!builder.Environment.IsDevelopment())
+    {
+        throw new InvalidOperationException("Storage:EvidencePath is required in non-development environments for durable shared evidence storage.");
+    }
+    evidenceRootPath = Path.Combine(AppContext.BaseDirectory, "storage", "evidences");
+}
+
+builder.Services.Configure<MS.Cobroup.Backend.Infrastructure.Storage.FileSystemStorageOptions>(options =>
+{
+    options.Provider = storageProvider;
+    options.RootPath = evidenceRootPath;
+    if (long.TryParse(storageSection["MaxFileSizeBytes"], out var maxBytes) && maxBytes > 0)
+    {
+        options.MaxFileSizeBytes = maxBytes;
+    }
+});
+
+builder.Services.AddSingleton<MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService, MS.Cobroup.Backend.Infrastructure.Storage.FileSystemObjectStorage>();
+
 builder.Services.AddDbContext<OperationsDbContext>(options =>
     options.UseNpgsql(operationsConnectionString, postgres =>
     {
         postgres.MigrationsAssembly(typeof(OperationsDbContext).Assembly.FullName);
         postgres.MigrationsHistoryTable("__EFMigrationsHistory", "operations");
     }));
+
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddTransient<CorrelationIdDelegatingHandler>();
 
 builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirectoryClient>((services, client) =>
 {
@@ -62,7 +102,7 @@ builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirector
         ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
-});
+}).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
 builder.Services.AddHttpClient<IAdministrativeLoanTemplateDirectory, AdminLoanTemplateDirectoryClient>((services, client) =>
 {
@@ -71,7 +111,7 @@ builder.Services.AddHttpClient<IAdministrativeLoanTemplateDirectory, AdminLoanTe
         ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
-});
+}).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
 builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentMethodDirectoryClient>((services, client) =>
 {
@@ -80,56 +120,89 @@ builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentM
         ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
-});
+}).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
-builder.Services.AddAuthentication(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+var validationService = new SymmetricTokenValidationService(builder.Configuration, builder.Environment);
+builder.Services.AddSingleton<ISymmetricTokenValidationService>(validationService);
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.MapInboundClaims = false;
+        options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+        options.SaveToken = true;
+        options.TokenValidationParameters = validationService.TokenValidationParameters;
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = context =>
+            {
+                var validation = AccessJwtValidator.Validate(context.Principal, context.SecurityToken);
+                if (!validation.IsValid)
+                {
+                    context.Fail(validation.FailureReason!);
+                }
+                return Task.CompletedTask;
+            }
+        };
+    });
+
 builder.Services.AddAuthorization(options =>
 {
     options.AddPolicy("tenant-user", policy =>
     {
-        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
-        policy.RequireClaim(OpenIddictConstants.Claims.Subject);
         policy.RequireClaim("organization_id");
     });
     options.AddPolicy("tenant-admin", policy =>
     {
-        policy.AddAuthenticationSchemes(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        policy.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme);
         policy.RequireAuthenticatedUser();
-        policy.RequireClaim(OpenIddictConstants.Claims.Subject);
         policy.RequireClaim("organization_id");
         policy.RequireRole(UserRole.Admin.ToString());
     });
 });
 
-builder.Services.AddOpenIddict().AddValidation(options =>
-{
-    var issuer = builder.Configuration["Identity:Issuer"]
-        ?? throw new InvalidOperationException("Identity:Issuer is required.");
-    options.SetIssuer(new Uri(issuer, UriKind.Absolute));
-    options.AddAudiences("cobroup-api");
-    options.UseSystemNetHttp();
-    options.UseAspNetCore();
-});
-
 var app = builder.Build();
 
-app.UseForwardedHeaders(new ForwardedHeadersOptions
+var forwardedOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
-});
+};
+var knownProxiesConfig = builder.Configuration.GetSection("ForwardedHeaders:KnownProxies").Get<string[]>()
+    ?? ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1"];
+foreach (var proxy in knownProxiesConfig)
+{
+    if (System.Net.IPAddress.TryParse(proxy, out var ip))
+    {
+        forwardedOptions.KnownProxies.Add(ip);
+    }
+    else if (System.Net.IPNetwork.TryParse(proxy, out var network))
+    {
+        forwardedOptions.KnownIPNetworks.Add(network);
+    }
+}
+app.UseForwardedHeaders(forwardedOptions);
 
 app.Use(async (context, next) =>
 {
-    var correlationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault()
-        ?? Guid.NewGuid().ToString("D");
+    var rawCorrelationId = context.Request.Headers["X-Correlation-ID"].FirstOrDefault();
+    var correlationId = !string.IsNullOrWhiteSpace(rawCorrelationId) && rawCorrelationId.Length <= 64
+        ? rawCorrelationId.Trim()
+        : Guid.NewGuid().ToString("D");
+
+    context.TraceIdentifier = correlationId;
     context.Response.Headers["X-Correlation-ID"] = correlationId;
     context.Response.Headers["X-Content-Type-Options"] = "nosniff";
     context.Response.Headers["X-Frame-Options"] = "DENY";
     context.Response.Headers["Referrer-Policy"] = "strict-origin-when-cross-origin";
     context.Response.Headers["X-XSS-Protection"] = "0";
 
-    await next();
+    var logger = context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Correlation");
+    using (logger.BeginScope(new Dictionary<string, object> { ["CorrelationId"] = correlationId }))
+    {
+        await next();
+    }
 });
 
 app.UseAuthentication();

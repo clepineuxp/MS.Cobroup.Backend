@@ -49,13 +49,56 @@ public sealed class EfPaymentRepository(OperationsDbContext dbContext) : IPaymen
         await dbContext.Payments
             .AsNoTracking()
             .Include(p => p.Allocations)
-            .Where(p => p.TenantId == tenantId && p.RouteId == routeId && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc <= toUtc)
+            .Where(p => p.TenantId == tenantId && p.RouteId == routeId && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc < toUtc)
             .OrderBy(p => p.RegisteredAtUtc)
             .ToArrayAsync(cancellationToken);
 
     public async Task AddAsync(Payment payment, CancellationToken cancellationToken)
     {
         await dbContext.Payments.AddAsync(payment, cancellationToken);
+    }
+
+    public async Task<PaymentSaveOutcome> TryRegisterPaymentAsync(
+        Payment payment,
+        Domain.Loans.Loan loan,
+        CancellationToken cancellationToken)
+    {
+        await using var transaction = await dbContext.Database.BeginTransactionAsync(cancellationToken);
+        try
+        {
+            var loanKey = BitConverter.ToInt64(loan.Id.ToByteArray(), 0);
+            await dbContext.Database.ExecuteSqlInterpolatedAsync(
+                $"SELECT pg_advisory_xact_lock({loanKey})",
+                cancellationToken);
+
+            var existing = await dbContext.Payments
+                .Include(p => p.Allocations)
+                .Include(p => p.Evidences)
+                .SingleOrDefaultAsync(
+                    p => p.TenantId == payment.TenantId && p.IdempotencyKey == payment.IdempotencyKey,
+                    cancellationToken);
+
+            if (existing is not null)
+            {
+                await transaction.RollbackAsync(cancellationToken);
+                return PaymentSaveOutcome.IdempotentReplay;
+            }
+
+            dbContext.Payments.Add(payment);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+            return PaymentSaveOutcome.Success;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PaymentSaveOutcome.ConcurrencyConflict;
+        }
+        catch (DbUpdateException ex) when (ex.InnerException is Npgsql.PostgresException pe && pe.SqlState == "23505")
+        {
+            await transaction.RollbackAsync(cancellationToken);
+            return PaymentSaveOutcome.IdempotentReplay;
+        }
     }
 
     public Task SaveChangesAsync(CancellationToken cancellationToken) =>

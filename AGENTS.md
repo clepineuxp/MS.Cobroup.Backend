@@ -4,19 +4,30 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.6.0.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.7.0 y `../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama requerida y activa: `feature/fase-9-endurecimiento-despliegue`.
+- Rama activa observada: `feature/solucion-hallazgos-iniciales`.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
 
 - Fase: 9
-- Resultado: COMPLETADA_FUNCIONALMENTE
+- Resultado: IDENTIDAD_JWT_REABIERTA_PARA_ADECUACION_Y_AUDITORIA
 - Plataforma: .NET SDK 10.0.401, `net10.0`, C# 14.
-- Auditoría independiente: no realizada.
-- Línea base: 9 fases totales; 9 completas (100%). Informe: `../cobroup.md/informe/avance.md` 2.0.0.
-- Corte actual: Fase 8 cerrada en Git (`cf65b00`); Fase 9 completada: health checks nativos (`/health/live`, `/health/ready` con `OperationsDatabaseHealthCheck` sobre PostgreSQL), `UseForwardedHeaders` para Ingress Traefik, cabeceras de seguridad HTTP (`X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`), Correlation ID (`X-Correlation-ID`), `Dockerfile` multi-stage no root (`1000:1000`) en puerto 8080, workflow CI/CD `.github/workflows/ci-cd.yml` para K3s (`cobroup-dev`, `cobroup-qa`, `cobroup-prod`) con GHCR y SSH; build Release 0 warnings/errores; 106 pruebas en verde.
+- Auditoría independiente: realizada el 2026-10-22; resultado técnico NO APROBADO.
+- Línea base funcional versionada; autenticación JWT exclusiva pendiente de conformidad. Auditoría técnica: `../cobroup.md/informe/auditoria-backend-csharp-2026-10-22-v2.html`; adenda vigente: `../cobroup.md/informe/linea-base-auditoria-jwt-2026-10-22.html`.
+- Corte actual: el árbol contiene cambios JWT sin commit. No se autoriza cierre, commit ni despliegue por el solo hecho de compilar.
+
+## Decisión vigente de autenticación
+
+- Se usarán exclusivamente access y refresh tokens JWT conforme a `../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
+- Este servicio es la API operativa y validador JWT; no autentica contraseñas, no emite tokens y nunca genera credenciales.
+- Valida exclusivamente firma simétrica `HS256`, `kid`, issuer, audience (`cobroup-api`), tipo (`access`), tiempos y claims obligatorios (`sub`, `organization_id`, `role`, `jti`, `iat`, `nbf`, `exp`) usando el secreto simétrico inyectado por ambiente vía `jwt-signing-secret` (`Jwt__SigningKeyBase64`, `Jwt__ActiveKeyId`, y opcionalmente `Jwt__PreviousValidationKeys__0__KeyId`, `Jwt__PreviousValidationKeys__0__SigningKeyBase64`).
+- Se prohíbe terminantemente la emisión de JWT en este servicio, el uso de JWKS/OIDC/RSA en runtime, claves/defaults de respaldo, `ValidateIssuer=false`, `ValidateAudience=false`, `alg=none` o algoritmos no autorizados.
+- El access token vive solo en memoria del frontend.
+- Toda operación mantiene autorización tenant/rol/recurso aunque el JWT sea válido.
+- Almacenamiento de archivos: implementa puerto agnóstico (`IFileStorageService`) sobre PVC durable con clave canónica `tenants/{tenantId}/{category}/{aggregateId}/{sha256}.{ext}`, validación estructural de imágenes contra decompression bombs, pertenencia estricta a root, atomicidad y prevención de symlinks/reparse points.
+- Las referencias de identidad anteriores dentro del historial append-only son evidencia histórica y están supersedidas; no son planeación ni criterio de aceptación vigente.
 
 ## Historial cronológico (append-only)
 
@@ -201,3 +212,120 @@
   - Compilación Release con 0 warnings y 0 errores.
 - Git: rama `feature/fase-9-endurecimiento-despliegue`; push, merge, tag y PR no autorizados.
 
+### 2026-10-22 — Rebaselining auditor de identidad JWT
+
+- Prompt: formalizar en toda la planeación la decisión de usar exclusivamente JWT y retirar el mecanismo anterior, actuando solo como auditor.
+- Decisión: BackendAdmin es el único emisor; este backend solo valida access JWT asimétricos mediante JWKS. La fase 2 queda reabierta.
+- Documentación: maestro 1.7.0, decisión JWT, README, contexto, contrato, ADR, roadmap, avance y adenda HTML alineados.
+- Auditoría: el contrato queda aprobado; la implementación actual sigue NO APROBADA y debe demostrar validación estricta, rotación de claves, tenant/rol/recurso y pruebas negativas.
+- Verificación: búsqueda transversal sin referencias normativas activas al mecanismo retirado; los informes y entradas históricas se conservaron como evidencia.
+- Git: no se modificó código en esta actividad y no se creó commit, push, merge, tag ni PR.
+
+### 2026-10-22 — Implementación de validación JWKS asimétrica, evidencias streaming y remediación de hallazgos (Bloques E, F, G)
+
+- Validación JWT asimétrica (B-02, B-03): implementado `JwksValidationService` que consume `GET /api/v1/auth/.well-known/jwks.json` de BackendAdmin. Validación estricta de firma RS256, audience `cobroup-api`, issuer HTTPS y claims obligatorios (`organization_id`, `role`, `typ=access`). Este backend operativo nunca recibe la clave privada.
+- Aislamiento y streaming de evidencias (B-08, B-09, I-05): eliminado endpoint legado `POST {paymentId}/evidence` y DTO `AttachPaymentEvidenceRequest`. Solo se permite creación mediante `POST {paymentId}/evidence/upload` con streaming en bloques, límite de 10 MB aplicado durante lectura, hash SHA-256 incremental y magic bytes. En caso de fallo en BD, se compensa eliminando el archivo con `DeleteEvidenceAsync`.
+- Autorización de descarga por ruta (B-09): `DownloadEvidence` valida que el actor tenga acceso explícito a la ruta del cobro mediante `routeDirectory.ListAccessibleAsync` antes de servir el archivo.
+- Aprobación de excepciones de crédito (B-10): en `LoanService`, se exige coincidencia exacta del plazo aprobado (`scheduleDurationDays != exception.ProposedDays`), rechazando plazos menores y mayores.
+- Zona horaria IANA e intervalos semiabiertos (I-06): conciliación diaria y agenda ajustadas a intervalos semiabiertos `[startUtc, endUtc)`.
+- Propagación de Correlation ID (I-12): middleware asigna/reutiliza `X-Correlation-ID` y `CorrelationIdDelegatingHandler` lo propaga en clientes HTTP hacia BackendAdmin.
+- Validación: 106/106 pruebas unitarias y de integración pasando en verde (Core 81/81, Infrastructure 25/25), build Release 0 warnings/errores, 0 cambios pendientes de modelo EF Core.
+- Git: cambios preservados en el working tree sin commit, push, merge, tag ni PR.
+
+### 2026-10-22 — Remediación Bloqueante B-09 (Auditoría v5): Almacenamiento durable en PVC y desacoplamiento hexagonal hacia AWS S3
+
+- **Solicitud**: Remediar el bloqueante B-09 documentado en la auditoría v5 (`cobroup.md/informe/auditoria-backend-csharp-2026-10-22-v5.html`), garantizando almacenamiento durable no efímero de evidencias mediante PVC de Kubernetes, desacoplado bajo arquitectura hexagonal con previsión de evolución futura a AWS S3.
+- **Decisión de almacenamiento PVC→S3**:
+  - Proveedor actual: PersistentVolumeClaim (PVC) de Kubernetes montado en `/var/cobroup/evidences`. En producción (2 réplicas) requiere `ReadWriteMany` (10Gi).
+  - Proveedor futuro previsto: AWS S3 mediante inyección de dependencias y configuración (`Storage:Provider=S3`), sin instalar SDK de AWS ni modificar Core, Domain ni contratos HTTP.
+  - La base de datos almacena exclusivamente claves lógicas relativas normalizadas (`StorageKey`), nunca rutas absolutas del pod ni del PVC.
+- **Implementación técnica**:
+  - `MS.Cobroup.Backend.Domain/Interfaces/Services/IFileStorageService.cs`: Puerto agnóstico con `StoredFileResult(StorageKey, ContentType, ByteSize, FileHashSha256)` y métodos asíncronos `SaveEvidenceAsync`, `ReadEvidenceAsync` y `DeleteEvidenceAsync` con `CancellationToken`.
+  - `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemStorageOptions.cs`: Opciones tipadas vinculadas a la sección `Storage`.
+  - `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemObjectStorage.cs`: Adaptador durable que rechaza path traversal (`..`, `:`, rutas absolutas), efectúa streaming en bloques con buffers de 64 KB, valida magic bytes (JPEG/PNG/WebP), restringe tamaño a 10 MB durante la lectura, computa hash SHA-256 incremental, escribe en `.tmp/` dentro del mismo volumen y realiza movimiento atómico al destino final, con limpieza garantizada en `finally`. En lecturas usa `FileShare.ReadWrite | FileShare.Delete` para interoperabilidad concurrente entre réplicas.
+  - `MS.Cobroup.Backend.Infrastructure/Storage/LocalFileStorageService.cs`: Mantenido como fachada delegada para preservar compatibilidad.
+  - `MS.Cobroup.Backend.Api/Program.cs`: Configuración tipada de almacenamiento. Si `Storage:Provider=S3` lanza `NotSupportedException` descriptiva; fail-fast ante proveedores no reconocidos fuera de pruebas.
+- **Archivos modificados/creados**:
+  - Modificados: `MS.Cobroup.Backend.Domain/Interfaces/Services/IFileStorageService.cs`, `MS.Cobroup.Backend.Infrastructure/Storage/LocalFileStorageService.cs`, `MS.Cobroup.Backend.Api/Program.cs`, `README.md`, `docs/context/INDEX.md`, `AGENTS.md`.
+  - Creados: `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemStorageOptions.cs`, `MS.Cobroup.Backend.Infrastructure/Storage/FileSystemObjectStorage.cs`, `docs/decisions/0004-durable-file-storage-pvc.md`, `tests/MS.Cobroup.Backend.Infrastructure.Tests/Storage/FileSystemObjectStorageTests.cs`.
+- **Resultados de pruebas**:
+  - Suite `MS.Cobroup.Backend.Infrastructure.Tests/Storage/FileSystemObjectStorageTests.cs`: 8 pruebas unitarias e integración en verde (normalización y rechazo traversal, límites de streaming, validación magic bytes, SHA-256, colisiones, atomic move, cancelación y persistencia/lectura compartida entre réplicas).
+  - Suite completa `MS.Cobroup.Backend.slnx`: 157/157 pruebas pasando (Core 81/81, Infrastructure 76/76).
+  - Compilación Release: 0 warnings, 0 errors (`dotnet build -c Release --no-incremental`).
+  - EF Core: 0 cambios pendientes de modelo (`dotnet ef migrations has-pending-model-changes`).
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-22 — Decisión arquitectónica: Alineación con proveedor RSA efímero de BackendAdmin y validación JWKS
+
+- **Decisión obligatoria aplicada**:
+  > COBROUP continuará usando JWT firmados. En la fase actual de desarrollo y validación no se configurará una clave privada externa en formato PEM. BackendAdmin utilizará un proveedor RSA efímero generado en memoria, habilitado de forma explícita y restringido a entornos no productivos. La clave y el `kid` cambian al reiniciar la instancia; en consecuencia, los JWT emitidos antes del reinicio pueden dejar de ser válidos. Este modo no se considera apto para producción, alta disponibilidad ni múltiples réplicas emisoras. La custodia de una clave persistente, su rotación, solapamiento de claves y recuperación operativa mediante Kubernetes Secret, PFX, PEM, AWS KMS u otro proveedor aprobado quedan registrados como backlog obligatorio previo a producción.
+- **Alineación operativa de Backend**:
+  - `MS.Cobroup.Backend` valida tokens exclusivamente mediante JWKS asimétrico (`GET /api/v1/auth/.well-known/jwks.json`) expuesto por `BackendAdmin`. No posee ni recibe claves privadas ni secretos simétricos.
+  - Se reconoce la limitación operativa: al reiniciar BackendAdmin en modo efímero, se genera un nuevo `kid` y nuevo par de claves; el backend operativo actualiza JWKS según su política, pero los tokens emitidos antes del reinicio pueden ser rechazados inmediatamente.
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-22 / 2026-10-23 — Migración integral a JWT simétrico HS256 por ambiente (Backend)
+
+- **Decisión aplicada**: `cobroup.md/DECISION_AUTENTICACION_JWT.md`, `BACKLOG_SEGURIDAD_FIRMA_SIMETRICA.md` y `MS.Cobroup.Backend/docs/decisions/0005-symmetric-hs256-validation.md`.
+- **Componentes retirados**:
+  - Eliminados: `JwksHealthCheck.cs`, `JwksPreloadHostedService.cs`, `JwksValidationService.cs` y `JwksSingletonIdentityTests.cs`.
+  - Eliminadas opciones y clientes HTTP dedicados a JWKS en `Program.cs`.
+- **Implementación técnica**:
+  - `MS.Cobroup.Backend.Api/Security/ISymmetricTokenValidationService.cs` y `SymmetricTokenValidationService.cs`:
+    - Validador simétrico local singleton con fail-fast estricto en startup: exige `Jwt:SigningKeyBase64` presente, no vacío, sin placeholders, Base64 válido y >= 32 bytes (256 bits).
+    - Allowlist exacta: `SecurityAlgorithms.HmacSha256` (`alg=HS256`).
+    - Soporte de `Jwt:ActiveKeyId` y `Jwt:PreviousValidationKeys` para rotación con solapamiento seguro.
+  - `MS.Cobroup.Backend.Api/Security/AccessJwtValidator.cs`:
+    - Validación de claims obligatorios (`sub`, `typ=access`, `organization_id`, `role`, `jti`, `iat`, `nbf`, `exp`) y audiencia `cobroup-api`.
+  - `MS.Cobroup.Backend.Api/Program.cs`:
+    - Registro de `ISymmetricTokenValidationService` e integración con `AddJwtBearer`.
+  - **Frontera de no emisión estrictamente auditada**:
+    - Backend no contiene servicios, casos de uso, controladores ni endpoints generadores de JWT.
+- **Pruebas automatizadas**:
+  - Creada suite `SymmetricValidationServiceTests.cs` (12 pruebas): fail-fast por clave ausente, vacía, placeholder, base64 inválido, 31 bytes; aceptación de 32 bytes; validación de clave activa y anterior; rechazo por retiro de anterior; consistencia multirréplica; rechazo de `none`, RS256, ES256, HS384, HS512; y reflexión que audita que Backend NO contiene tipos ni endpoints de emisión de tokens.
+  - Actualizadas `AccessJwtValidationTests.cs` y `JwtBearerPipelineHttpTests.cs`.
+  - Suite completa: 174/174 pruebas pasando en Release (Core 81/81, Infrastructure 93/93).
+  - Compilación Release: 0 warnings, 0 errors.
+  - EF Core: 0 cambios pendientes de modelo (`dotnet ef migrations has-pending-model-changes`).
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-23 — Remediación v9: Contrato único de rotación HS256 y cierre técnico B-09/PVC durable
+
+- **Auditoría atendida**: `cobroup.md/informe/auditoria-backend-csharp-2026-10-23-v9.html`.
+- **Rotación HS256 y fail-fast en validador**:
+  - Implementado contrato estricto: `Jwt__ActiveKeyId`, `Jwt__SigningKeyBase64`, `Jwt__PreviousValidationKeys__0__KeyId`, `Jwt__PreviousValidationKeys__0__SigningKeyBase64`.
+  - Fail-fast estricto en `SymmetricTokenValidationService`: validación de regex `^[A-Za-z0-9._-]{1,64}$`, rechazo de defaults en runtime (`k1`), verificación estricta de pares en previous keys (ambos presentes o ambos ausentes), rechazo de hijos incompletos (sin `continue` silencioso), verificación de propiedades desconocidas y rechazo de coincidencia de material o `kid` entre activo y previo.
+- **Almacenamiento durable de archivos (Cierre B-09)**:
+  - `IFileStorageService`: refactorizado a puerto agnóstico general para archivos binarios (`PutAsync`, `OpenReadAsync`, `DeleteAsync`, `ExistsAsync`, `GetMetadataAsync`) con fachada temporal retrocompatible para payment evidences.
+  - Clave lógica canónica: `tenants/{tenantId}/{category}/{aggregateId}/{sha256}.{ext}` con allowlist de servidor (`evidences`, `payments`, `documents`, `attachments`), y compatibilidad explícita con claves legadas `{tenantId}/{paymentId}/{sha256}.{ext}`.
+  - `ImageStructuralValidator`: validación estructural completa de imágenes JPEG (marcadores, SOF, EOI), PNG (firma, chunks IHDR/IEND), WebP (VP8/VP8L/VP8X) y límite estricto de resolución <= 8192px contra decompression bombs.
+  - `FileSystemObjectStorage`:
+    - Normalización canónica y verificación estricta de límites de raíz (`rootWithSep`).
+    - Detección y rechazo de symlinks / reparse points en la raíz y en cada componente intermedio de la ruta.
+    - Publicación atómica mediante archivo temporal en el mismo volumen (`.tmp/`) con `File.Move(..., overwrite: false)`.
+    - Idempotencia segura: si el destino existe con idéntico tamaño y SHA-256 se considera éxito idempotente sin sobrescritura destructiva; si el contenido difiere, arroja `InvalidOperationException` (violación de integridad).
+    - Reconciliación segura de temporales huérfanos (`ReconcileOrphanTempsAsync`).
+- **Pruebas y verificación**:
+  - Suite completa: 189/189 pruebas pasando (Core 81/81, Infrastructure 108/108).
+  - Cero cambios pendientes de modelo en EF Core (`has-pending-model-changes`).
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-23 — Protección de autonomía de pruebas del Backend operativo
+
+- **Responsabilidad confirmada**: El Backend operativo ya prueba autónomamente su validador JWT (`SymmetricTokenValidationService`), incluyendo clave activa, ventana de solapamiento con clave anterior, rechazo de clave retirada y `kid` desconocido, sin referenciar proyectos de BackendAdmin.
+- **Protección añadida**: Prueba arquitectónica que inspecciona todos los `.csproj` y falla si cualquier `ProjectReference` resuelve fuera de la raíz de `MS.Cobroup.Backend`.
+- **Verificación**: 206/206 pruebas aprobadas en Release (Core 81/81, Infrastructure 125/125).
+- **Git**: Cambios preservados en working tree; sin commit, push, merge, tag ni PR.
+### 2026-10-23 — Remediación obligatoria de hallazgo B-21: Fail-fast de configuración y validación de rotación
+
+- **Auditoría atendida**: `cobroup.md/informe/auditoria-backend-csharp-2026-10-23-v10.html` (Hallazgo B-21).
+- **Alineación de configuración y tiempo de diseño**:
+  - Eliminado `"ActiveKeyId": "k1"` de `MS.Cobroup.Backend.Api/appsettings.json`. Fail-fast inmediato en arranque si `Jwt:ActiveKeyId` falta o no cumple el patrón regex `^[A-Za-z0-9._-]{1,64}$`.
+  - Añadido `OperationsDbContextFactory` para soporte estricto de `IDesignTimeDbContextFactory<OperationsDbContext>` en herramientas CLI (`dotnet ef`).
+- **Verificación de validación y solapamiento de rotación**:
+  - `SymmetricTokenValidationService`: Valida access JWT emitidos por `BackendAdmin` con clave activa y claves en slot anterior.
+  - Comprobación de interoperabilidad y solapamiento en pruebas: durante la rotación, el backend operativo procesa concurrentemente tokens firmados con la clave activa y la clave anterior sin interrupción.
+- **Pruebas y verificación**:
+  - Suite completa: 189/189 pruebas pasando (Core 81/81, Infrastructure 108/108).
+  - Cero cambios pendientes de modelo en EF Core (`has-pending-model-changes`).
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.

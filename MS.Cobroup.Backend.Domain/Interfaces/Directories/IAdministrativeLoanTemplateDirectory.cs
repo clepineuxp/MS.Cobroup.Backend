@@ -1,4 +1,4 @@
-namespace MS.Cobroup.Backend.Core.LoanTemplates;
+namespace MS.Cobroup.Backend.Domain.Interfaces.Directories;
 
 public interface IAdministrativeLoanTemplateDirectory
 {

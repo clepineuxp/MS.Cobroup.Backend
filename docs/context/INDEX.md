@@ -2,7 +2,7 @@
 
 ## Propósito
 
-Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evidencias, conforme a `../cobroup.md/COBROUP.md` 1.0.4. Hasta fase 3 valida identidad y publica rutas autorizadas; los agregados operativos comienzan en la fase de clientes.
+Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evidencias, conforme a `../../../cobroup.md/COBROUP.md` 1.7.0. Valida access tokens JWT de la autoridad administrativa y publica rutas autorizadas; los agregados operativos comienzan en la fase de clientes.
 
 ## Límites
 
@@ -12,13 +12,13 @@ Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evid
 
 ## Seguridad inicial
 
-`AuthenticatedActor` modela `user_id`, `tenant_id`, roles `ADMIN`/`SUPERVISOR`/`COLLECTOR` y rutas autorizadas. El cliente nunca será autoridad del tenant. `AccessScopeAuthorizer` deniega tenant ajeno y rutas no asignadas; no sustituye la autenticación futura.
+`AuthenticatedActor` modela `user_id`, `organization_id`, roles `ADMIN`/`SUPERVISOR`/`COLLECTOR` y rutas autorizadas. El cliente nunca es autoridad del tenant. `AccessScopeAuthorizer` deniega tenant ajeno y rutas no asignadas; se aplica después de validar estrictamente firma y claims del JWT.
 
 ## Estado técnico
 
 - .NET 10 / C# 14, solución `.slnx`, sin `src/`.
 - Health check: `/health`.
-- Identidad central validada y lectura contractual de rutas autorizadas: implementadas hasta fase 3. La persistencia operativa continúa diferida hasta clientes.
+- Lectura contractual de rutas autorizadas implementada. La validación de identidad JWT está reabierta y pendiente de conformidad con la decisión del 2026-10-22.
 - Contratos: [fronteras v1](../contracts/platform-boundaries-v1.md).
-- Decisiones: [fundación fase 1](../decisions/0001-phase-1-foundation.md).
+- Decisiones: [fundación fase 1](../decisions/0001-phase-1-foundation.md), [confianza JWT](../decisions/0002-trust-central-identity.md) y [almacenamiento durable PVC](../decisions/0004-durable-file-storage-pvc.md).
 - Roadmap propuesto: [fases siguientes](../roadmap/phase-proposal.md).
