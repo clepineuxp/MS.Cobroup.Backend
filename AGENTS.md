@@ -309,6 +309,13 @@
   - Suite completa: 189/189 pruebas pasando (Core 81/81, Infrastructure 108/108).
   - Cero cambios pendientes de modelo en EF Core (`has-pending-model-changes`).
 - **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-23 — Protección de autonomía de pruebas del Backend operativo
+
+- **Responsabilidad confirmada**: El Backend operativo ya prueba autónomamente su validador JWT (`SymmetricTokenValidationService`), incluyendo clave activa, ventana de solapamiento con clave anterior, rechazo de clave retirada y `kid` desconocido, sin referenciar proyectos de BackendAdmin.
+- **Protección añadida**: Prueba arquitectónica que inspecciona todos los `.csproj` y falla si cualquier `ProjectReference` resuelve fuera de la raíz de `MS.Cobroup.Backend`.
+- **Verificación**: 206/206 pruebas aprobadas en Release (Core 81/81, Infrastructure 125/125).
+- **Git**: Cambios preservados en working tree; sin commit, push, merge, tag ni PR.
 ### 2026-10-23 — Remediación obligatoria de hallazgo B-21: Fail-fast de configuración y validación de rotación
 
 - **Auditoría atendida**: `cobroup.md/informe/auditoria-backend-csharp-2026-10-23-v10.html` (Hallazgo B-21).
