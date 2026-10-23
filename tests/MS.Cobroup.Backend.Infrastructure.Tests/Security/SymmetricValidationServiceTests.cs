@@ -311,6 +311,113 @@ public sealed class SymmetricValidationServiceTests : IClassFixture<WebApplicati
         }
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void Test13_FailFast_WhenActiveKeyIdMissingOrEmpty(string? emptyKid)
+    {
+        var config = CreateConfig(ValidKey32Base64, activeKid: emptyKid);
+        var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new SymmetricTokenValidationService(config, env));
+        Assert.Contains("Jwt:ActiveKeyId", ex.Message);
+        Assert.Contains("obligatorio", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("CHANGE_ME")]
+    [InlineData("PLACEHOLDER")]
+    [InlineData("${{Dev_Jwt__ActiveKeyId}}")]
+    public void Test14_FailFast_WhenActiveKeyIdContainsPlaceholder(string placeholderKid)
+    {
+        var config = CreateConfig(ValidKey32Base64, activeKid: placeholderKid);
+        var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new SymmetricTokenValidationService(config, env));
+        Assert.Contains("placeholder", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("invalid kid with spaces")]
+    [InlineData("k1@#$")]
+    [InlineData("this-key-id-is-way-too-long-because-it-exceeds-sixty-four-characters-limit-1234567890")]
+    public void Test15_FailFast_WhenActiveKeyIdInvalidFormat(string invalidKid)
+    {
+        var config = CreateConfig(ValidKey32Base64, activeKid: invalidKid);
+        var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new SymmetricTokenValidationService(config, env));
+        Assert.Contains("formato requerido", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Test16_FailFast_WhenPreviousKeyChildIsIncomplete()
+    {
+        var dict = new Dictionary<string, string?>
+        {
+            ["Jwt:SigningKeyBase64"] = ValidKey32Base64,
+            ["Jwt:ActiveKeyId"] = "k1",
+            ["Identity:Issuer"] = "https://dev-auth.cobroup.com",
+            ["Identity:Audience"] = "cobroup-api",
+            ["Jwt:PreviousValidationKeys:0:KeyId"] = "k0"
+            // Missing SigningKeyBase64
+        };
+        var config = new ConfigurationBuilder().AddInMemoryCollection(dict).Build();
+        var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new SymmetricTokenValidationService(config, env));
+        Assert.Contains("incompleta", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Test17_FailFast_WhenPreviousKeyContainsUnknownProperties()
+    {
+        var dict = new Dictionary<string, string?>
+        {
+            ["Jwt:SigningKeyBase64"] = ValidKey32Base64,
+            ["Jwt:ActiveKeyId"] = "k1",
+            ["Identity:Issuer"] = "https://dev-auth.cobroup.com",
+            ["Identity:Audience"] = "cobroup-api",
+            ["Jwt:PreviousValidationKeys:0:KeyId"] = "k0",
+            ["Jwt:PreviousValidationKeys:0:SigningKeyBase64"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
+            ["Jwt:PreviousValidationKeys:0:UnknownTypo"] = "true"
+        };
+        var config = new ConfigurationBuilder().AddInMemoryCollection(dict).Build();
+        var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new SymmetricTokenValidationService(config, env));
+        Assert.Contains("Propiedad desconocida", ex.Message);
+    }
+
+    [Fact]
+    public void Test18_FailFast_WhenPreviousKidEqualsActiveKid()
+    {
+        var prevDict = new Dictionary<string, string>
+        {
+            ["k1"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))
+        };
+        var config = CreateConfig(ValidKey32Base64, activeKid: "k1", previousKeys: prevDict);
+        var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new SymmetricTokenValidationService(config, env));
+        Assert.Contains("no puede ser igual al identificador de clave activa", ex.Message);
+    }
+
+    [Fact]
+    public void Test19_FailFast_WhenPreviousMaterialEqualsActiveMaterial()
+    {
+        var prevDict = new Dictionary<string, string>
+        {
+            ["k0"] = ValidKey32Base64 // same key bytes
+        };
+        var config = CreateConfig(ValidKey32Base64, activeKid: "k1", previousKeys: prevDict);
+        var env = new TestHostEnvironment { EnvironmentName = Environments.Development };
+
+        var ex = Assert.Throws<InvalidOperationException>(() => new SymmetricTokenValidationService(config, env));
+        Assert.Contains("idéntico al material de la clave activa", ex.Message);
+    }
+
     private sealed class TestHostEnvironment : IHostEnvironment
     {
         public string EnvironmentName { get; set; } = Environments.Development;

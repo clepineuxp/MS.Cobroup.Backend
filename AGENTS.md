@@ -21,10 +21,12 @@
 ## Decisión vigente de autenticación
 
 - Se usarán exclusivamente access y refresh tokens JWT conforme a `../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
-- Este servicio no autentica contraseñas, no emite tokens y no recibe la clave privada. Valida firma asimétrica, `kid`, issuer, audience, tipo, tiempos y claims obligatorios mediante claves públicas rotables.
-- Se prohíben secretos HMAC compartidos, claves/defaults de respaldo, `ValidateIssuer=false`, `ValidateAudience=false` y aceptación de algoritmos no autorizados.
-- El access token vive solo en memoria del frontend. El refresh JWT viaja únicamente en cookie HttpOnly/Secure/SameSite y nunca en Web Storage, cuerpo persistente o base de datos en claro.
+- Este servicio es la API operativa y validador JWT; no autentica contraseñas, no emite tokens y nunca genera credenciales.
+- Valida exclusivamente firma simétrica `HS256`, `kid`, issuer, audience (`cobroup-api`), tipo (`access`), tiempos y claims obligatorios (`sub`, `organization_id`, `role`, `jti`, `iat`, `nbf`, `exp`) usando el secreto simétrico inyectado por ambiente vía `jwt-signing-secret` (`Jwt__SigningKeyBase64`, `Jwt__ActiveKeyId`, y opcionalmente `Jwt__PreviousValidationKeys__0__KeyId`, `Jwt__PreviousValidationKeys__0__SigningKeyBase64`).
+- Se prohíbe terminantemente la emisión de JWT en este servicio, el uso de JWKS/OIDC/RSA en runtime, claves/defaults de respaldo, `ValidateIssuer=false`, `ValidateAudience=false`, `alg=none` o algoritmos no autorizados.
+- El access token vive solo en memoria del frontend.
 - Toda operación mantiene autorización tenant/rol/recurso aunque el JWT sea válido.
+- Almacenamiento de archivos: implementa puerto agnóstico (`IFileStorageService`) sobre PVC durable con clave canónica `tenants/{tenantId}/{category}/{aggregateId}/{sha256}.{ext}`, validación estructural de imágenes contra decompression bombs, pertenencia estricta a root, atomicidad y prevención de symlinks/reparse points.
 - Las referencias de identidad anteriores dentro del historial append-only son evidencia histórica y están supersedidas; no son planeación ni criterio de aceptación vigente.
 
 ## Historial cronológico (append-only)
@@ -285,4 +287,38 @@
   - Suite completa: 174/174 pruebas pasando en Release (Core 81/81, Infrastructure 93/93).
   - Compilación Release: 0 warnings, 0 errors.
   - EF Core: 0 cambios pendientes de modelo (`dotnet ef migrations has-pending-model-changes`).
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-23 — Remediación v9: Contrato único de rotación HS256 y cierre técnico B-09/PVC durable
+
+- **Auditoría atendida**: `cobroup.md/informe/auditoria-backend-csharp-2026-10-23-v9.html`.
+- **Rotación HS256 y fail-fast en validador**:
+  - Implementado contrato estricto: `Jwt__ActiveKeyId`, `Jwt__SigningKeyBase64`, `Jwt__PreviousValidationKeys__0__KeyId`, `Jwt__PreviousValidationKeys__0__SigningKeyBase64`.
+  - Fail-fast estricto en `SymmetricTokenValidationService`: validación de regex `^[A-Za-z0-9._-]{1,64}$`, rechazo de defaults en runtime (`k1`), verificación estricta de pares en previous keys (ambos presentes o ambos ausentes), rechazo de hijos incompletos (sin `continue` silencioso), verificación de propiedades desconocidas y rechazo de coincidencia de material o `kid` entre activo y previo.
+- **Almacenamiento durable de archivos (Cierre B-09)**:
+  - `IFileStorageService`: refactorizado a puerto agnóstico general para archivos binarios (`PutAsync`, `OpenReadAsync`, `DeleteAsync`, `ExistsAsync`, `GetMetadataAsync`) con fachada temporal retrocompatible para payment evidences.
+  - Clave lógica canónica: `tenants/{tenantId}/{category}/{aggregateId}/{sha256}.{ext}` con allowlist de servidor (`evidences`, `payments`, `documents`, `attachments`), y compatibilidad explícita con claves legadas `{tenantId}/{paymentId}/{sha256}.{ext}`.
+  - `ImageStructuralValidator`: validación estructural completa de imágenes JPEG (marcadores, SOF, EOI), PNG (firma, chunks IHDR/IEND), WebP (VP8/VP8L/VP8X) y límite estricto de resolución <= 8192px contra decompression bombs.
+  - `FileSystemObjectStorage`:
+    - Normalización canónica y verificación estricta de límites de raíz (`rootWithSep`).
+    - Detección y rechazo de symlinks / reparse points en la raíz y en cada componente intermedio de la ruta.
+    - Publicación atómica mediante archivo temporal en el mismo volumen (`.tmp/`) con `File.Move(..., overwrite: false)`.
+    - Idempotencia segura: si el destino existe con idéntico tamaño y SHA-256 se considera éxito idempotente sin sobrescritura destructiva; si el contenido difiere, arroja `InvalidOperationException` (violación de integridad).
+    - Reconciliación segura de temporales huérfanos (`ReconcileOrphanTempsAsync`).
+- **Pruebas y verificación**:
+  - Suite completa: 189/189 pruebas pasando (Core 81/81, Infrastructure 108/108).
+  - Cero cambios pendientes de modelo en EF Core (`has-pending-model-changes`).
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+### 2026-10-23 — Remediación obligatoria de hallazgo B-21: Fail-fast de configuración y validación de rotación
+
+- **Auditoría atendida**: `cobroup.md/informe/auditoria-backend-csharp-2026-10-23-v10.html` (Hallazgo B-21).
+- **Alineación de configuración y tiempo de diseño**:
+  - Eliminado `"ActiveKeyId": "k1"` de `MS.Cobroup.Backend.Api/appsettings.json`. Fail-fast inmediato en arranque si `Jwt:ActiveKeyId` falta o no cumple el patrón regex `^[A-Za-z0-9._-]{1,64}$`.
+  - Añadido `OperationsDbContextFactory` para soporte estricto de `IDesignTimeDbContextFactory<OperationsDbContext>` en herramientas CLI (`dotnet ef`).
+- **Verificación de validación y solapamiento de rotación**:
+  - `SymmetricTokenValidationService`: Valida access JWT emitidos por `BackendAdmin` con clave activa y claves en slot anterior.
+  - Comprobación de interoperabilidad y solapamiento en pruebas: durante la rotación, el backend operativo procesa concurrentemente tokens firmados con la clave activa y la clave anterior sin interrupción.
+- **Pruebas y verificación**:
+  - Suite completa: 189/189 pruebas pasando (Core 81/81, Infrastructure 108/108).
+  - Cero cambios pendientes de modelo en EF Core (`has-pending-model-changes`).
 - **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.

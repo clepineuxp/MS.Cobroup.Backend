@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Text.RegularExpressions;
 using Microsoft.IdentityModel.Tokens;
 
 namespace MS.Cobroup.Backend.Api.Security;
@@ -8,7 +9,7 @@ namespace MS.Cobroup.Backend.Api.Security;
 /// Consume el secreto simétrico del ambiente para verificar firmas de tokens emitidos por BackendAdmin.
 /// Nunca emite tokens ni expone credenciales de firma.
 /// </summary>
-public sealed class SymmetricTokenValidationService : ISymmetricTokenValidationService
+public sealed partial class SymmetricTokenValidationService : ISymmetricTokenValidationService
 {
     private readonly SymmetricSecurityKey activeKey;
     private readonly Dictionary<string, SymmetricSecurityKey> previousKeys = new(StringComparer.Ordinal);
@@ -63,11 +64,26 @@ public sealed class SymmetricTokenValidationService : ISymmetricTokenValidationS
                 $"La clave 'Jwt:SigningKeyBase64' debe tener una longitud mínima de 32 bytes (256 bits). Longitud obtenida: {activeKeyRawBytes.Length} bytes.");
         }
 
-        ActiveKeyId = configuration["Jwt:ActiveKeyId"]?.Trim() ?? string.Empty;
-        if (string.IsNullOrWhiteSpace(ActiveKeyId))
+        var activeKid = configuration["Jwt:ActiveKeyId"]?.Trim();
+        if (string.IsNullOrWhiteSpace(activeKid))
         {
-            ActiveKeyId = "k1";
+            throw new InvalidOperationException(
+                "El identificador de clave activa 'Jwt:ActiveKeyId' es obligatorio, no admite valores por defecto y debe configurarse explícitamente.");
         }
+
+        if (IsPlaceholder(activeKid))
+        {
+            throw new InvalidOperationException(
+                "El identificador 'Jwt:ActiveKeyId' contiene un marcador de posición (placeholder) no permitido.");
+        }
+
+        if (!KeyIdRegex().IsMatch(activeKid))
+        {
+            throw new InvalidOperationException(
+                $"El identificador 'Jwt:ActiveKeyId' ('{activeKid}') no cumple con el formato requerido '^[A-Za-z0-9._-]{{1,64}}$'.");
+        }
+
+        ActiveKeyId = activeKid;
 
         activeKey = new SymmetricSecurityKey(activeKeyRawBytes)
         {
@@ -120,17 +136,68 @@ public sealed class SymmetricTokenValidationService : ISymmetricTokenValidationS
             return;
         }
 
-        foreach (var child in section.GetChildren())
+        var children = section.GetChildren().ToList();
+        if (children.Count == 0)
         {
+            return;
+        }
+
+        var allowedProperties = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "KeyId", "SigningKeyBase64" };
+
+        foreach (var child in children)
+        {
+            foreach (var prop in child.GetChildren())
+            {
+                if (!allowedProperties.Contains(prop.Key))
+                {
+                    throw new InvalidOperationException(
+                        $"Propiedad desconocida 'Jwt:PreviousValidationKeys:{child.Key}:{prop.Key}'. Solo se admiten 'KeyId' y 'SigningKeyBase64'.");
+                }
+            }
+
             var kid = child["KeyId"]?.Trim();
             var rawPrevKey = child["SigningKeyBase64"]?.Trim();
 
-            if (string.IsNullOrWhiteSpace(kid) || string.IsNullOrWhiteSpace(rawPrevKey))
+            var hasKid = !string.IsNullOrWhiteSpace(kid);
+            var hasKey = !string.IsNullOrWhiteSpace(rawPrevKey);
+
+            if (hasKid != hasKey)
             {
-                continue;
+                throw new InvalidOperationException(
+                    $"Configuración incompleta en 'Jwt:PreviousValidationKeys:{child.Key}'. 'KeyId' y 'SigningKeyBase64' deben estar ambos presentes.");
             }
 
-            if (IsPlaceholder(rawPrevKey))
+            if (!hasKid)
+            {
+                throw new InvalidOperationException(
+                    $"La entrada 'Jwt:PreviousValidationKeys:{child.Key}' está vacía o incompleta.");
+            }
+
+            if (IsPlaceholder(kid!))
+            {
+                throw new InvalidOperationException(
+                    $"El 'KeyId' en 'Jwt:PreviousValidationKeys:{child.Key}' contiene un placeholder no permitido.");
+            }
+
+            if (!KeyIdRegex().IsMatch(kid!))
+            {
+                throw new InvalidOperationException(
+                    $"El 'KeyId' ('{kid}') en 'Jwt:PreviousValidationKeys:{child.Key}' no cumple con el formato requerido '^[A-Za-z0-9._-]{{1,64}}$'.");
+            }
+
+            if (string.Equals(kid, ActiveKeyId, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException(
+                    $"El kid de la clave anterior '{kid}' no puede ser igual al identificador de clave activa 'Jwt:ActiveKeyId'.");
+            }
+
+            if (previousKeys.ContainsKey(kid!))
+            {
+                throw new InvalidOperationException(
+                    $"Clave anterior duplicada con kid '{kid}'.");
+            }
+
+            if (IsPlaceholder(rawPrevKey!))
             {
                 throw new InvalidOperationException(
                     $"La clave anterior con kid '{kid}' contiene un marcador de posición (placeholder) no permitido.");
@@ -139,7 +206,7 @@ public sealed class SymmetricTokenValidationService : ISymmetricTokenValidationS
             byte[] prevBytes;
             try
             {
-                prevBytes = Convert.FromBase64String(rawPrevKey);
+                prevBytes = Convert.FromBase64String(rawPrevKey!);
             }
             catch (FormatException)
             {
@@ -153,8 +220,23 @@ public sealed class SymmetricTokenValidationService : ISymmetricTokenValidationS
                     $"La clave anterior con kid '{kid}' debe tener una longitud mínima de 32 bytes. Longitud obtenida: {prevBytes.Length} bytes.");
             }
 
+            if (prevBytes.SequenceEqual(activeKeyRawBytes))
+            {
+                throw new InvalidOperationException(
+                    $"El material criptográfico de la clave anterior con kid '{kid}' no puede ser idéntico al material de la clave activa.");
+            }
+
+            foreach (var existingPrevBytes in previousKeysRawBytes)
+            {
+                if (existingPrevBytes.SequenceEqual(prevBytes))
+                {
+                    throw new InvalidOperationException(
+                        $"Material criptográfico duplicado en las claves anteriores para kid '{kid}'.");
+                }
+            }
+
             previousKeysRawBytes.Add(prevBytes);
-            previousKeys[kid] = new SymmetricSecurityKey(prevBytes)
+            previousKeys[kid!] = new SymmetricSecurityKey(prevBytes)
             {
                 KeyId = kid
             };
@@ -210,4 +292,7 @@ public sealed class SymmetricTokenValidationService : ISymmetricTokenValidationS
             Array.Clear(bytes, 0, bytes.Length);
         }
     }
+
+    [GeneratedRegex(@"^[A-Za-z0-9._-]{1,64}$")]
+    private static partial Regex KeyIdRegex();
 }

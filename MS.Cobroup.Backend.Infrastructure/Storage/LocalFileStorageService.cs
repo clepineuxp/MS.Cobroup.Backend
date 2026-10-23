@@ -33,6 +33,33 @@ public sealed class LocalFileStorageService : IFileStorageService
         innerStorage = new FileSystemObjectStorage(options);
     }
 
+    public Task<StoredFileResult> PutAsync(
+        string logicalKey,
+        Stream stream,
+        string declaredContentType,
+        CancellationToken cancellationToken) =>
+        innerStorage.PutAsync(logicalKey, stream, declaredContentType, cancellationToken);
+
+    public Task<Stream?> OpenReadAsync(
+        string logicalKey,
+        CancellationToken cancellationToken) =>
+        innerStorage.OpenReadAsync(logicalKey, cancellationToken);
+
+    public Task<bool> DeleteAsync(
+        string logicalKey,
+        CancellationToken cancellationToken) =>
+        innerStorage.DeleteAsync(logicalKey, cancellationToken);
+
+    public Task<bool> ExistsAsync(
+        string logicalKey,
+        CancellationToken cancellationToken) =>
+        innerStorage.ExistsAsync(logicalKey, cancellationToken);
+
+    public Task<FileMetadataResult?> GetMetadataAsync(
+        string logicalKey,
+        CancellationToken cancellationToken) =>
+        innerStorage.GetMetadataAsync(logicalKey, cancellationToken);
+
     public Task<StoredFileResult> StoreEvidenceAsync(
         Guid tenantId,
         Guid paymentId,

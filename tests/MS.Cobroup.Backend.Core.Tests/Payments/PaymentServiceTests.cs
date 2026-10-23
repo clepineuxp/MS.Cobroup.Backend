@@ -412,6 +412,47 @@ public sealed class PaymentServiceTests
             "image/webp"
         };
 
+        public Task<StoredFileResult> PutAsync(
+            string logicalKey,
+            Stream stream,
+            string declaredContentType,
+            CancellationToken cancellationToken)
+        {
+            if (!AllowedMimeTypes.Contains(declaredContentType))
+            {
+                throw new InvalidOperationException("Formato de imagen no permitido. Solo se aceptan JPEG, PNG y WebP.");
+            }
+            return Task.FromResult(new StoredFileResult(logicalKey, declaredContentType, stream.Length, "sha256-test-hash"));
+        }
+
+        public Task<Stream?> OpenReadAsync(
+            string logicalKey,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult<Stream?>(new MemoryStream([1, 2, 3]));
+        }
+
+        public Task<bool> DeleteAsync(
+            string logicalKey,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<bool> ExistsAsync(
+            string logicalKey,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult(true);
+        }
+
+        public Task<FileMetadataResult?> GetMetadataAsync(
+            string logicalKey,
+            CancellationToken cancellationToken)
+        {
+            return Task.FromResult<FileMetadataResult?>(new FileMetadataResult(logicalKey, "image/jpeg", 123, DateTimeOffset.UtcNow));
+        }
+
         public Task<StoredFileResult> StoreEvidenceAsync(
             Guid tenantId,
             Guid paymentId,

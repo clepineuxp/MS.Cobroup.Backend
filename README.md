@@ -25,7 +25,7 @@ El contrato completo de identidad y los criterios auditables están en [`DECISIO
 
 Conforme a [`DECISION_ALMACENAMIENTO_ARCHIVOS.md`](../cobroup.md/DECISION_ALMACENAMIENTO_ARCHIVOS.md) y [ADR-0004](docs/decisions/0004-durable-file-storage-pvc.md):
 - Todas las fotografías de evidencias y archivos binarios se almacenan actualmente en un **PersistentVolumeClaim (PVC)** de Kubernetes mediante el adaptador `FileSystemObjectStorage` (`Storage:Provider=FileSystem`).
-- La arquitectura hexagonal mantiene el puerto `IFileStorageService` en Domain desacoplado de la infraestructura; las claves persistidas en la base de datos son exclusivamente relativas y normalizadas (`{tenantId}/{paymentId}/{hash}.{ext}`).
+- La arquitectura hexagonal mantiene el puerto agnóstico `IFileStorageService` en Domain desacoplado de la infraestructura; la clave canónica normalizada es `tenants/{tenantId}/{category}/{aggregateId}/{sha256}.{ext}` (con allowlist de servidor y compatibilidad retrocompatible con claves legadas `{tenantId}/{paymentId}/{sha256}.{ext}`).
 - En producción con dos réplicas (`replicas: 2`), el PVC utiliza el modo de acceso compartido concurrente **`ReadWriteMany` (RWX)**.
-- El streaming valida magic bytes (JPEG/PNG/WebP), límite de 10 MB, hash incremental SHA-256 y publicación atómica mediante archivo temporal (`.tmp/`).
+- El streaming realiza validación estructural completa de imágenes (`ImageStructuralValidator`: SOI/SOF/EOI, IHDR/IEND, VP8/VP8L/VP8X, máx 8192px contra decompression bombs), límite de 10 MB, hash SHA-256 incremental y publicación atómica con `File.Move(..., overwrite: false)` (idempotente si el hash coincide, error de integridad si difiere).
 - La arquitectura permite sustituir el adaptador por AWS S3 en el futuro mediante configuración (`Storage:Provider=S3`), sin alterar Domain, Core ni los controladores HTTP.
