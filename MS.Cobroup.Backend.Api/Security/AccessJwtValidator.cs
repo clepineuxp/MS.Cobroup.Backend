@@ -49,10 +49,10 @@ public static class AccessJwtValidator
             return AccessJwtValidationResult.Failure("Security token is not a recognized JWT type (expected JsonWebToken or JwtSecurityToken).");
         }
 
-        // 1. Algoritmo obligatorio: RS256
-        if (!string.Equals(alg, SecurityAlgorithms.RsaSha256, StringComparison.OrdinalIgnoreCase))
+        // 1. Algoritmo obligatorio: HS256
+        if (!string.Equals(alg, SecurityAlgorithms.HmacSha256, StringComparison.OrdinalIgnoreCase))
         {
-            return AccessJwtValidationResult.Failure($"Algorithm '{alg}' is not allowed. Only RS256 is accepted.");
+            return AccessJwtValidationResult.Failure($"Algorithm '{alg}' is not allowed. Only HS256 is accepted.");
         }
 
         // 2. Header kid obligatorio y no vacío

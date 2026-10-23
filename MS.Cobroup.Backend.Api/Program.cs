@@ -30,8 +30,7 @@ var operationsConnectionString = builder.Configuration.GetConnectionString("Oper
 
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy("Service is live"), tags: ["live"])
-    .AddCheck<OperationsDatabaseHealthCheck>("database", tags: ["ready"])
-    .AddCheck<JwksHealthCheck>("jwks", tags: ["ready"]);
+    .AddCheck<OperationsDatabaseHealthCheck>("database", tags: ["ready"]);
 
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -123,12 +122,8 @@ builder.Services.AddHttpClient<IOperationalPaymentMethodDirectory, AdminPaymentM
     client.Timeout = TimeSpan.FromSeconds(10);
 }).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
-builder.Services.AddHttpClient("JwksClient", client =>
-{
-    client.Timeout = TimeSpan.FromSeconds(10);
-});
-builder.Services.AddSingleton<IJwksValidationService, JwksValidationService>();
-builder.Services.AddHostedService<JwksPreloadHostedService>();
+var validationService = new SymmetricTokenValidationService(builder.Configuration, builder.Environment);
+builder.Services.AddSingleton<ISymmetricTokenValidationService>(validationService);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
@@ -136,6 +131,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
         options.MapInboundClaims = false;
         options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
         options.SaveToken = true;
+        options.TokenValidationParameters = validationService.TokenValidationParameters;
         options.Events = new JwtBearerEvents
         {
             OnTokenValidated = context =>
@@ -148,13 +144,6 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
                 return Task.CompletedTask;
             }
         };
-    });
-
-builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
-    .Configure<IServiceProvider>((options, sp) =>
-    {
-        var jwksService = sp.GetRequiredService<IJwksValidationService>();
-        options.TokenValidationParameters = jwksService.TokenValidationParameters;
     });
 
 builder.Services.AddAuthorization(options =>

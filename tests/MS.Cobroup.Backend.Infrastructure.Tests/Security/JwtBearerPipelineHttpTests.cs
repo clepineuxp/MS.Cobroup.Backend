@@ -16,21 +16,25 @@ public sealed class JwtBearerPipelineHttpTests : IClassFixture<WebApplicationFac
 {
     private const string Issuer = "https://identity.cobroup.internal";
     private const string Audience = "cobroup-api";
-    private const string KeyId = "pipeline-test-rsa-key-1";
+    private const string KeyId = "pipeline-test-hs256-key-1";
+    private static readonly byte[] RawKeyBytes = new byte[32]
+    {
+        0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+        0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F,
+        0x20, 0x21, 0x22, 0x23, 0x24, 0x25, 0x26, 0x27,
+        0x28, 0x29, 0x2A, 0x2B, 0x2C, 0x2D, 0x2E, 0x2F
+    };
+    private static readonly string KeyBase64 = Convert.ToBase64String(RawKeyBytes);
 
-    private readonly RSA rsa;
-    private readonly RsaSecurityKey signingKey;
+    private readonly SymmetricSecurityKey signingKey;
     private readonly SigningCredentials credentials;
     private readonly WebApplicationFactory<Program> factory;
     private readonly HttpClient client;
 
     public JwtBearerPipelineHttpTests(WebApplicationFactory<Program> baseFactory)
     {
-        rsa = RSA.Create(2048);
-        signingKey = new RsaSecurityKey(rsa) { KeyId = KeyId };
-        credentials = new SigningCredentials(signingKey, SecurityAlgorithms.RsaSha256);
-
-        var publicKeyPem = rsa.ExportSubjectPublicKeyInfoPem();
+        signingKey = new SymmetricSecurityKey(RawKeyBytes) { KeyId = KeyId };
+        credentials = new SigningCredentials(signingKey, SecurityAlgorithms.HmacSha256);
 
         factory = baseFactory.WithWebHostBuilder(builder =>
         {
@@ -38,10 +42,8 @@ public sealed class JwtBearerPipelineHttpTests : IClassFixture<WebApplicationFac
             builder.UseSetting("ConnectionStrings:OperationsDatabase", "Host=localhost;Database=test;Username=test;Password=test");
             builder.UseSetting("Identity:Issuer", Issuer);
             builder.UseSetting("Identity:Audience", Audience);
-            builder.UseSetting("Identity:JwksUri", "");
-            builder.UseSetting("Identity:JwksUrl", "");
-            builder.UseSetting("Jwt:PublicKeyPem", publicKeyPem);
-            builder.UseSetting("Jwt:KeyId", KeyId);
+            builder.UseSetting("Jwt:SigningKeyBase64", KeyBase64);
+            builder.UseSetting("Jwt:ActiveKeyId", KeyId);
         });
 
         client = factory.CreateClient();
@@ -50,7 +52,6 @@ public sealed class JwtBearerPipelineHttpTests : IClassFixture<WebApplicationFac
     public void Dispose()
     {
         client.Dispose();
-        rsa.Dispose();
     }
 
     [Fact]
@@ -224,8 +225,8 @@ public sealed class JwtBearerPipelineHttpTests : IClassFixture<WebApplicationFac
     [Fact]
     public async Task MissingKid_Returns401Unauthorized()
     {
-        var keyWithoutKid = new RsaSecurityKey(rsa) { KeyId = null };
-        var credsWithoutKid = new SigningCredentials(keyWithoutKid, SecurityAlgorithms.RsaSha256);
+        var keyWithoutKid = new SymmetricSecurityKey(RawKeyBytes) { KeyId = null };
+        var credsWithoutKid = new SigningCredentials(keyWithoutKid, SecurityAlgorithms.HmacSha256);
         var token = CreateToken(signingCreds: credsWithoutKid);
         var response = await SendMeAsync(token);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -234,8 +235,8 @@ public sealed class JwtBearerPipelineHttpTests : IClassFixture<WebApplicationFac
     [Fact]
     public async Task UnknownKid_Returns401Unauthorized()
     {
-        var keyUnknownKid = new RsaSecurityKey(rsa) { KeyId = "unknown-kid-xyz" };
-        var credsUnknownKid = new SigningCredentials(keyUnknownKid, SecurityAlgorithms.RsaSha256);
+        var keyUnknownKid = new SymmetricSecurityKey(RawKeyBytes) { KeyId = "unknown-kid-xyz" };
+        var credsUnknownKid = new SigningCredentials(keyUnknownKid, SecurityAlgorithms.HmacSha256);
         var token = CreateToken(signingCreds: credsUnknownKid);
         var response = await SendMeAsync(token);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
@@ -244,20 +245,22 @@ public sealed class JwtBearerPipelineHttpTests : IClassFixture<WebApplicationFac
     [Fact]
     public async Task UntrustedKeySignature_Returns401Unauthorized()
     {
-        using var untrustedRsa = RSA.Create(2048);
-        var untrustedKey = new RsaSecurityKey(untrustedRsa) { KeyId = KeyId };
-        var untrustedCreds = new SigningCredentials(untrustedKey, SecurityAlgorithms.RsaSha256);
+        var untrustedBytes = new byte[32];
+        Array.Fill(untrustedBytes, (byte)0x77);
+        var untrustedKey = new SymmetricSecurityKey(untrustedBytes) { KeyId = KeyId };
+        var untrustedCreds = new SigningCredentials(untrustedKey, SecurityAlgorithms.HmacSha256);
         var token = CreateToken(signingCreds: untrustedCreds);
         var response = await SendMeAsync(token);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }
 
     [Fact]
-    public async Task HmacAlgorithm_Returns401Unauthorized()
+    public async Task RsaAlgorithm_Returns401Unauthorized()
     {
-        var hmacKey = new SymmetricSecurityKey(new byte[32]) { KeyId = KeyId };
-        var hmacCreds = new SigningCredentials(hmacKey, SecurityAlgorithms.HmacSha256);
-        var token = CreateToken(signingCreds: hmacCreds);
+        using var rsa = RSA.Create(2048);
+        var rsaKey = new RsaSecurityKey(rsa) { KeyId = KeyId };
+        var rsaCreds = new SigningCredentials(rsaKey, SecurityAlgorithms.RsaSha256);
+        var token = CreateToken(signingCreds: rsaCreds);
         var response = await SendMeAsync(token);
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
     }

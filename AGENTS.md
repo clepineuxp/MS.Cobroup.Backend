@@ -260,5 +260,29 @@
 - **Alineación operativa de Backend**:
   - `MS.Cobroup.Backend` valida tokens exclusivamente mediante JWKS asimétrico (`GET /api/v1/auth/.well-known/jwks.json`) expuesto por `BackendAdmin`. No posee ni recibe claves privadas ni secretos simétricos.
   - Se reconoce la limitación operativa: al reiniciar BackendAdmin en modo efímero, se genera un nuevo `kid` y nuevo par de claves; el backend operativo actualiza JWKS según su política, pero los tokens emitidos antes del reinicio pueden ser rechazados inmediatamente.
-- **Validación**: 157/157 pruebas pasando en verde (Core 81/81, Infrastructure 76/76); compilación Release limpia.
+- **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+### 2026-10-22 / 2026-10-23 — Migración integral a JWT simétrico HS256 por ambiente (Backend)
+
+- **Decisión aplicada**: `cobroup.md/DECISION_AUTENTICACION_JWT.md`, `BACKLOG_SEGURIDAD_FIRMA_SIMETRICA.md` y `MS.Cobroup.Backend/docs/decisions/0005-symmetric-hs256-validation.md`.
+- **Componentes retirados**:
+  - Eliminados: `JwksHealthCheck.cs`, `JwksPreloadHostedService.cs`, `JwksValidationService.cs` y `JwksSingletonIdentityTests.cs`.
+  - Eliminadas opciones y clientes HTTP dedicados a JWKS en `Program.cs`.
+- **Implementación técnica**:
+  - `MS.Cobroup.Backend.Api/Security/ISymmetricTokenValidationService.cs` y `SymmetricTokenValidationService.cs`:
+    - Validador simétrico local singleton con fail-fast estricto en startup: exige `Jwt:SigningKeyBase64` presente, no vacío, sin placeholders, Base64 válido y >= 32 bytes (256 bits).
+    - Allowlist exacta: `SecurityAlgorithms.HmacSha256` (`alg=HS256`).
+    - Soporte de `Jwt:ActiveKeyId` y `Jwt:PreviousValidationKeys` para rotación con solapamiento seguro.
+  - `MS.Cobroup.Backend.Api/Security/AccessJwtValidator.cs`:
+    - Validación de claims obligatorios (`sub`, `typ=access`, `organization_id`, `role`, `jti`, `iat`, `nbf`, `exp`) y audiencia `cobroup-api`.
+  - `MS.Cobroup.Backend.Api/Program.cs`:
+    - Registro de `ISymmetricTokenValidationService` e integración con `AddJwtBearer`.
+  - **Frontera de no emisión estrictamente auditada**:
+    - Backend no contiene servicios, casos de uso, controladores ni endpoints generadores de JWT.
+- **Pruebas automatizadas**:
+  - Creada suite `SymmetricValidationServiceTests.cs` (12 pruebas): fail-fast por clave ausente, vacía, placeholder, base64 inválido, 31 bytes; aceptación de 32 bytes; validación de clave activa y anterior; rechazo por retiro de anterior; consistencia multirréplica; rechazo de `none`, RS256, ES256, HS384, HS512; y reflexión que audita que Backend NO contiene tipos ni endpoints de emisión de tokens.
+  - Actualizadas `AccessJwtValidationTests.cs` y `JwtBearerPipelineHttpTests.cs`.
+  - Suite completa: 174/174 pruebas pasando en Release (Core 81/81, Infrastructure 93/93).
+  - Compilación Release: 0 warnings, 0 errors.
+  - EF Core: 0 cambios pendientes de modelo (`dotnet ef migrations has-pending-model-changes`).
 - **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
