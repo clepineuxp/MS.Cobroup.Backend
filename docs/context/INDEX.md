@@ -22,3 +22,7 @@ Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evid
 - Contratos: [fronteras v1](../contracts/platform-boundaries-v1.md).
 - Decisiones: [fundación fase 1](../decisions/0001-phase-1-foundation.md), [confianza JWT](../decisions/0002-trust-central-identity.md) y [almacenamiento durable PVC](../decisions/0004-durable-file-storage-pvc.md).
 - Roadmap propuesto: [fases siguientes](../roadmap/phase-proposal.md).
+
+## Plantillas por rangos y cobro mensual — 2026-10-23
+
+Decisión vigente: [rangos, rutas y mensual](../../../cobroup.md/DECISION_PLANTILLAS_RANGOS_RUTAS.md). Monto/porcentaje mínimo y máximo inclusivos; plantillas publicadas asignadas explícitamente a la ruta del cliente, con validación del servidor. Mensual conserva el día de inicio por meses calendario. Migración administrativa preparada y pendiente de aplicación; no modifica condiciones de préstamos existentes.

@@ -5,6 +5,29 @@ namespace MS.Cobroup.Backend.Core.Tests.Loans;
 
 public sealed class LoanScheduleCalculatorTests
 {
+    [Theory]
+    [InlineData(2026, 1, 31, 2026, 2, 28, 2026, 3, 31)]
+    [InlineData(2028, 1, 31, 2028, 2, 29, 2028, 3, 31)]
+    [InlineData(2026, 12, 15, 2027, 1, 15, 2027, 2, 15)]
+    [InlineData(2026, 1, 30, 2026, 2, 28, 2026, 3, 30)]
+    public void MonthlyUsesCalendarMonthsAndPreservesOriginalDay(int year, int month, int day,
+        int y1, int m1, int d1, int y2, int m2, int d2)
+    {
+        var schedule = LoanScheduleCalculator.Calculate(777.77m, 12.5m, PaymentFrequency.Monthly, 7, 3, new(year, month, day));
+        Assert.Equal(new DateOnly(y1, m1, d1), schedule.Installments[0].DueDate);
+        Assert.Equal(new DateOnly(y2, m2, d2), schedule.Installments[1].DueDate);
+        Assert.Equal(new DateOnly(year, month, day).AddMonths(3), schedule.DueDate);
+        Assert.Null(schedule.FrequencyNDays);
+        Assert.Equal(schedule.TotalAmount, schedule.Installments.Sum(item => item.ExpectedAmount));
+    }
+
+    [Fact]
+    public void RejectsUnknownFrequencyRatherThanTreatingItAsDaily()
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            LoanScheduleCalculator.Calculate(100m, 10m, (PaymentFrequency)99, null, 2, new(2026, 1, 1)));
+    }
+
     [Fact]
     public void Calculate_daily_schedule_computes_exact_sum_and_dates()
     {

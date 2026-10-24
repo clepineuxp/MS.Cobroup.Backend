@@ -329,3 +329,19 @@
   - Suite completa: 189/189 pruebas pasando (Core 81/81, Infrastructure 108/108).
   - Cero cambios pendientes de modelo en EF Core (`has-pending-model-changes`).
 - **Git**: Cambios preservados en working tree sobre rama `feature/solucion-hallazgos-iniciales`; sin commit, push, merge, tag ni PR.
+
+
+### 2026-10-23 — Plantillas por rangos y rutas; cuotas mensuales
+
+- Solicitud: explicar y modificar plantillas para monto/porcentaje mínimo y máximo, y listar las de la ruta al prestar. Ampliación: agregar cobros mensuales.
+- Regla: rangos continuos inclusivos, asignación explícita a rutas del tenant y validación de alcance/versión en servidor. Mensual usa meses calendario anclados al día original y conserva el cargo total pactado.
+- Datos: mínimo monetario y rutas versionados, migración aditiva AddLoanTemplateRangesAndRoutes y SQL idempotente preparado. Plantillas históricas sin asignación requieren edición; no se cambian préstamos existentes.
+- Trabajo previo de aprovisionamiento conservado. Sin commit, push ni despliegue solicitados para esta intervención. Migración no aplicada ni pruebas sobre datos reales.
+- Validación final: Core administrativo 69/69 y operativo 97/97; frontend administrativo 49/49 y operativo 53/53. Pruebas dirigidas de modelo EF 6/6 y directorio HTTP 4/4. EF sin cambios de modelo pendientes y SQL idempotente generado. No se ejecutó migración ni integración PostgreSQL desplegada.
+
+### 2026-10-23 — Commits autorizados de plantillas, mensual y mapa
+
+- Solicitud expresa: realizar los commits e incluir la actualización del mapa.
+- Alcance: rangos de crédito, asignación a rutas, cuotas mensuales, migración y documentación; ambas interfaces incluyen la compatibilidad de importación de Leaflet del mapa.
+- Validación registrada: 278 pruebas aprobadas y compilaciones correctas; sin nuevos cambios funcionales posteriores.
+- Commit autorizado: SÍ. Sin push ni despliegue; migración administrativa pendiente de aplicación.
