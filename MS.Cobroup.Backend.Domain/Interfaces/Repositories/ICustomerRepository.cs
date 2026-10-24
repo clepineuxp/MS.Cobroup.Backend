@@ -53,4 +53,5 @@ public sealed record CustomerSearchItem(
     decimal PrimaryLatitude,
     decimal PrimaryLongitude,
     CustomerStatus Status,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string Identification);

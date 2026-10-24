@@ -35,7 +35,7 @@ public sealed class EfAgendaRepositoryTests
                 [new CustomerPhoneValue("3001112233", true)],
                 [new CustomerLocationValue(4.60m, -74.08m, "Sede Principal", "Av 10", true, LocationSource.Gps)],
                 Guid.NewGuid(),
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow, "001234567");
 
             var custOtherTenant = Customer.Create(
                 otherTenantId,
@@ -47,7 +47,7 @@ public sealed class EfAgendaRepositoryTests
                 [new CustomerPhoneValue("3009998877", true)],
                 [new CustomerLocationValue(4.61m, -74.09m, null, null, true, LocationSource.Manual)],
                 Guid.NewGuid(),
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow, "001234567");
 
             await context.Customers.AddRangeAsync(cust1, custOtherTenant);
             await context.SaveChangesAsync();
@@ -90,7 +90,7 @@ public sealed class EfAgendaRepositoryTests
                 [new CustomerPhoneValue("3001234567", true)],
                 [new CustomerLocationValue(4.70m, -74.10m, null, null, true, LocationSource.Manual)],
                 Guid.NewGuid(),
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow, "001234567");
 
             await context.Customers.AddAsync(cust);
 

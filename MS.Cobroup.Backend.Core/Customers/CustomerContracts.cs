@@ -25,7 +25,8 @@ public sealed record CreateCustomerCommand(
     string? BusinessOrWorkName,
     string? Observations,
     IReadOnlyCollection<CustomerPhoneInput> Phones,
-    IReadOnlyCollection<CustomerLocationInput> Locations);
+    IReadOnlyCollection<CustomerLocationInput> Locations,
+    string Identification);
 
 public sealed record UpdateCustomerCommand(
     CustomerActor Actor,
@@ -38,7 +39,8 @@ public sealed record UpdateCustomerCommand(
     string? Observations,
     CustomerStatus Status,
     IReadOnlyCollection<CustomerPhoneInput> Phones,
-    IReadOnlyCollection<CustomerLocationInput> Locations);
+    IReadOnlyCollection<CustomerLocationInput> Locations,
+    string Identification);
 
 public sealed record SearchCustomersQuery(
     CustomerActor Actor,
@@ -75,7 +77,8 @@ public sealed record CustomerDetails(
     IReadOnlyCollection<CustomerPhoneDetails> Phones,
     IReadOnlyCollection<CustomerLocationDetails> Locations,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string Identification);
 
 public enum CustomerOutcome
 {

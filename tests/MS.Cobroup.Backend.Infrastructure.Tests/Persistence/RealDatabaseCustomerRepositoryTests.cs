@@ -75,7 +75,7 @@ public sealed class RealDatabaseCustomerRepositoryTests
                 [new("300 111 2233", true)],
                 [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)],
                 Guid.NewGuid(),
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow, "001234567");
             var updateAudit = CustomerAuditRecord.Create(
                 tenantId,
                 persistedCustomer.Id,
@@ -117,7 +117,7 @@ public sealed class RealDatabaseCustomerRepositoryTests
         [new("3001112233", true)],
         [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)],
         Guid.NewGuid(),
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow, "001234567");
 
     private static CustomerAuditRecord CreateAudit(Customer customer) => CustomerAuditRecord.Create(
         customer.TenantId,

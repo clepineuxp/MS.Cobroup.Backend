@@ -100,6 +100,18 @@ public sealed class CustomerServiceTests
         Assert.Equal(CustomerOutcome.Forbidden, result.Outcome);
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("0")]
+    public async Task Create_requires_identification_before_persisting(string identification)
+    {
+        var fixture = new Fixture(UserRole.Collector);
+        var command = fixture.CreateCommand(fixture.RouteId) with { Identification = identification };
+        var result = await fixture.Service.CreateAsync(command, default);
+        Assert.Equal(CustomerOutcome.Invalid, result.Outcome);
+        Assert.Null(fixture.Repository.SavedCustomer);
+    }
+
     private sealed class Fixture
     {
         public Fixture(UserRole role, bool includeSecondRoute = false)
@@ -136,7 +148,7 @@ public sealed class CustomerServiceTests
             null,
             null,
             [new("3001112233", true)],
-            [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)]);
+            [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)], "001234567");
 
         public UpdateCustomerCommand UpdateCommand(Guid customerId, Guid routeId) => new(
             Actor,
@@ -149,7 +161,7 @@ public sealed class CustomerServiceTests
             null,
             CustomerStatus.Active,
             [new("3001112233", true)],
-            [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)]);
+            [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)], "001234567");
 
         public Customer CreateCustomer(Guid routeId) => Customer.Create(
             Actor.TenantId,
@@ -161,7 +173,7 @@ public sealed class CustomerServiceTests
             [new("3001112233", true)],
             [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)],
             Actor.UserId,
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow, "001234567");
     }
 
     private sealed class FakeRouteDirectory(RouteDirectoryResult result) : IAdministrativeRouteDirectory

@@ -96,7 +96,8 @@ public sealed class CustomerService(
                     item.IsPrimary,
                     item.Source)).ToArray(),
                 command.Actor.UserId,
-                DateTimeOffset.UtcNow);
+                DateTimeOffset.UtcNow,
+                command.Identification);
         }
         catch (ArgumentException exception)
         {
@@ -174,7 +175,8 @@ public sealed class CustomerService(
                     item.IsPrimary,
                     item.Source)).ToArray(),
                 command.Actor.UserId,
-                updatedAtUtc);
+                updatedAtUtc,
+                command.Identification);
         }
         catch (ArgumentException exception)
         {
@@ -253,7 +255,8 @@ public sealed class CustomerService(
                 item.Source))
             .ToArray(),
         customer.CreatedAtUtc,
-        customer.UpdatedAtUtc);
+        customer.UpdatedAtUtc,
+        customer.Identification);
 
     private static string SerializeAuditDetails(CustomerAuditSnapshot? before, Customer after) =>
         JsonSerializer.Serialize(new CustomerAuditChange(before, CustomerAuditSnapshot.From(after)));
@@ -267,7 +270,8 @@ public sealed class CustomerService(
         string LastNames,
         string? BusinessOrWorkName,
         int PhoneCount,
-        int LocationCount)
+        int LocationCount,
+        string Identification)
     {
         public static CustomerAuditSnapshot From(Customer customer) => new(
             customer.RouteId,
@@ -276,6 +280,7 @@ public sealed class CustomerService(
             customer.LastNames,
             customer.BusinessOrWorkName,
             customer.Phones.Count,
-            customer.Locations.Count);
+            customer.Locations.Count,
+            customer.Identification);
     }
 }
