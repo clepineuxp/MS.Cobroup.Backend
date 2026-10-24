@@ -146,6 +146,9 @@ public sealed class LoansController(LoanService service) : ControllerBase
             return BadRequest(new { message = "Los días de frecuencia deben ser positivos cuando se selecciona Cada N Días." });
         }
 
+        if (!Enum.IsDefined(request.PaymentFrequency))
+            return BadRequest(new { message = "La frecuencia de pago es inválida." });
+
         var schedule = LoanScheduleCalculator.Calculate(
             request.PrincipalAmount,
             request.InterestRate,

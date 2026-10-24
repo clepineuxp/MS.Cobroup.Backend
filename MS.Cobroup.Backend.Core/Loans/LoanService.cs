@@ -41,6 +41,9 @@ public sealed class LoanService(
             return LoanResult.Invalid("Los días de frecuencia deben ser positivos cuando se selecciona Cada N Días.");
         }
 
+        if (!Enum.IsDefined(input.PaymentFrequency))
+            return LoanResult.Invalid("La frecuencia de pago es inválida.");
+
         var routes = await routeDirectory.ListAccessibleAsync(command.AccessToken, cancellationToken);
         if (routes.Outcome is not RouteDirectoryOutcome.Success)
         {
@@ -141,6 +144,12 @@ public sealed class LoanService(
                 return LoanResult.NotFound("La plantilla de crédito indicada no está disponible o no existe.");
             }
 
+            if (template.RouteIds is null || !template.RouteIds.Contains(customer.RouteId))
+                return LoanResult.Invalid("La plantilla no está asignada a la ruta del cliente.");
+            if (input.LoanTemplateVersion != template.Version)
+                return LoanResult.Invalid("La plantilla cambió. Recarga las plantillas antes de crear el préstamo.");
+            if (input.PrincipalAmount < template.MinPrincipalAmount)
+                return LoanResult.Invalid($"El monto es inferior al mínimo de la plantilla ({template.MinPrincipalAmount:N2}).");
             if (input.PrincipalAmount > template.MaxPrincipalAmount)
             {
                 return LoanResult.Invalid($"El monto solicitado ({input.PrincipalAmount:N2}) supera el máximo permitido por la plantilla ({template.MaxPrincipalAmount:N2}). Requiere solicitar una excepción.");
@@ -152,9 +161,10 @@ public sealed class LoanService(
                 return LoanResult.Invalid($"La duración del cronograma ({scheduleDurationDays} días calendario) supera el plazo máximo de la plantilla ({template.MaxLoanDays} días). Requiere solicitar una excepción.");
             }
 
-            if (!template.AllowedPercentages.Contains(input.InterestRate))
+            if (input.InterestRate < (template.MinPercentage ?? template.AllowedPercentages.Min())
+                || input.InterestRate > (template.MaxPercentage ?? template.AllowedPercentages.Max()))
             {
-                return LoanResult.Invalid($"La tasa ({input.InterestRate:N2}%) no está dentro de los porcentajes autorizados en la plantilla.");
+                return LoanResult.Invalid($"La tasa ({input.InterestRate:N2}%) no está dentro del rango autorizado en la plantilla.");
             }
 
             templateId = template.Id;

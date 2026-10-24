@@ -17,7 +17,11 @@ public sealed record AvailableLoanTemplate(
     int MaxLoanDays,
     decimal MaxPrincipalAmount,
     IReadOnlyCollection<decimal> AllowedPercentages,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    decimal MinPrincipalAmount = 0.01m,
+    decimal? MinPercentage = null,
+    decimal? MaxPercentage = null,
+    IReadOnlyCollection<Guid>? RouteIds = null);
 
 public enum LoanTemplateDirectoryOutcome
 {

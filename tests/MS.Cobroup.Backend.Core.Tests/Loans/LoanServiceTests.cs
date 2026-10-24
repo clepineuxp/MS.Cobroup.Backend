@@ -38,7 +38,7 @@ public sealed class LoanServiceTests
         var templateId = Guid.NewGuid();
 
         routeDirectory.Routes = [new(routeId, "Ruta Centro", null, "Cobrador 1", 10, 10)];
-        templateDirectory.Templates = [new(templateId, "Plantilla 20D", "Desc", "Standard", "Published", 1, 20, 1000m, [10m, 15m, 20m], DateTimeOffset.UtcNow)];
+        templateDirectory.Templates = [new(templateId, "Plantilla 20D", "Desc", "Standard", "Published", 1, 20, 1000m, [10m, 15m, 20m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
 
         var customer = CreateCustomer(tenantId, routeId);
         customerRepository.Add(customer);
@@ -79,7 +79,7 @@ public sealed class LoanServiceTests
         var templateId = Guid.NewGuid();
 
         routeDirectory.Routes = [new(routeId, "Ruta Centro", null, "Cobrador 1", 10, 10)];
-        templateDirectory.Templates = [new(templateId, "Plantilla Pequeña", "Desc", "Standard", "Published", 1, 20, 500m, [15m], DateTimeOffset.UtcNow)];
+        templateDirectory.Templates = [new(templateId, "Plantilla Pequeña", "Desc", "Standard", "Published", 1, 20, 500m, [15m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
 
         var customer = CreateCustomer(tenantId, routeId);
         customerRepository.Add(customer);
@@ -210,7 +210,7 @@ public sealed class LoanServiceTests
 
         // MaxActiveLoans = 1
         routeDirectory.Routes = [new(routeId, "Ruta 1", null, "Cobrador 1", 10, 1)];
-        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 20, 1000m, [10m], DateTimeOffset.UtcNow)];
+        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 20, 1000m, [10m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
 
         var customer = CreateCustomer(tenantId, routeId);
         customerRepository.Add(customer);
@@ -246,7 +246,7 @@ public sealed class LoanServiceTests
         var templateId = Guid.NewGuid();
 
         routeDirectory.Routes = [new(routeId, "Ruta 1", null, "Cobrador 1", 10, 10)];
-        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 20, 1000m, [10m], DateTimeOffset.UtcNow)];
+        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 20, 1000m, [10m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
 
         var customer = CreateCustomer(tenantId, routeId);
         customer.Update(
@@ -292,7 +292,7 @@ public sealed class LoanServiceTests
         var templateId = Guid.NewGuid();
 
         routeDirectory.Routes = [new(routeId, "Ruta 1", null, "Cobrador 1", 10, 10)];
-        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 10, 1000m, [10m], DateTimeOffset.UtcNow)];
+        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 10, 1000m, [10m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
 
         var customer = CreateCustomer(tenantId, routeId);
         customerRepository.Add(customer);
@@ -323,7 +323,7 @@ public sealed class LoanServiceTests
         var templateId = Guid.NewGuid();
 
         routeDirectory.Routes = [new(routeId, "Ruta 1", null, "Cobrador 1", 10, 10)];
-        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 10, 1000m, [10m], DateTimeOffset.UtcNow)];
+        templateDirectory.Templates = [new(templateId, "Plantilla", "Desc", "Standard", "Published", 1, 10, 1000m, [10m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
 
         var customer = CreateCustomer(tenantId, routeId);
         customerRepository.Add(customer);
@@ -339,6 +339,74 @@ public sealed class LoanServiceTests
         Assert.Equal(LoanListOutcome.Success, listResult.Outcome);
         Assert.NotNull(listResult.Loans);
         Assert.Single(listResult.Loans);
+    }
+
+    [Theory]
+    [InlineData(100, 10, true)]
+    [InlineData(1000, 20, true)]
+    [InlineData(500, 12.5, true)]
+    [InlineData(99, 15, false)]
+    [InlineData(1001, 15, false)]
+    [InlineData(500, 9.99, false)]
+    [InlineData(500, 20.01, false)]
+    public async Task OriginationEnforcesContinuousRanges(decimal principal, decimal rate, bool accepted)
+    {
+        var tenantId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+        routeDirectory.Routes = [new(routeId, "Ruta", null, "Collector", null, null)];
+        templateDirectory.Templates = [new(templateId, "Rango", null, "Low", "Published", 1, 30, 1000m,
+            [10m, 20m], DateTimeOffset.UtcNow, 100m, 10m, 20m, [routeId])];
+        var customer = CreateCustomer(tenantId, routeId);
+        customerRepository.Add(customer);
+        var actor = new CustomerActor(Guid.NewGuid(), tenantId, UserRole.Collector);
+        var result = await service.OriginateAsync(new(actor, "token", new(customer.Id, principal, rate,
+            PaymentFrequency.Daily, null, 10, templateId, 1, null, new DateOnly(2026, 11, 1))), default);
+        Assert.Equal(accepted ? LoanOutcome.Created : LoanOutcome.Invalid, result.Outcome);
+    }
+
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 2)]
+    public async Task RejectsTemplateFromAnotherRouteOrStaleVersion(bool assigned, int version)
+    {
+        var tenantId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+        routeDirectory.Routes = [new(routeId, "Ruta", null, "Collector", null, null)];
+        templateDirectory.Templates = [new(templateId, "Rango", null, "Low", "Published", 1, 30, 1000m,
+            [10m, 20m], DateTimeOffset.UtcNow, 100m, 10m, 20m, [assigned ? routeId : Guid.NewGuid()])];
+        var customer = CreateCustomer(tenantId, routeId);
+        customerRepository.Add(customer);
+        var actor = new CustomerActor(Guid.NewGuid(), tenantId, UserRole.Collector);
+        var result = await service.OriginateAsync(new(actor, "token", new(customer.Id, 500m, 15m,
+            PaymentFrequency.Daily, null, 10, templateId, version, null, new DateOnly(2026, 11, 1))), default);
+        Assert.Equal(LoanOutcome.Invalid, result.Outcome);
+    }
+
+    [Theory]
+    [InlineData(59, true)]
+    [InlineData(58, false)]
+    public async Task MonthlyLoanChecksActualCalendarDurationAgainstTemplate(int maximumDays, bool accepted)
+    {
+        var tenantId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+        routeDirectory.Routes = [new(routeId, "Ruta", null, "Collector", null, null)];
+        templateDirectory.Templates = [new(templateId, "Mensual", null, "Low", "Published", 1, maximumDays, 1000m,
+            [10m, 20m], DateTimeOffset.UtcNow, 100m, 10m, 20m, [routeId])];
+        var customer = CreateCustomer(tenantId, routeId);
+        customerRepository.Add(customer);
+        var actor = new CustomerActor(Guid.NewGuid(), tenantId, UserRole.Collector);
+        var result = await service.OriginateAsync(new(actor, "token", new(customer.Id, 500m, 12.5m,
+            PaymentFrequency.Monthly, null, 2, templateId, 1, null, new DateOnly(2026, 1, 31))), default);
+        Assert.Equal(accepted ? LoanOutcome.Created : LoanOutcome.Invalid, result.Outcome);
+        if (accepted)
+        {
+            Assert.Equal(PaymentFrequency.Monthly, result.Loan!.PaymentFrequency);
+            Assert.Equal(new DateOnly(2026, 2, 28), result.Loan.Installments.First().DueDate);
+            Assert.Equal(new DateOnly(2026, 3, 31), result.Loan.Installments.Last().DueDate);
+        }
     }
 
     private static Customer CreateCustomer(Guid tenantId, Guid routeId)

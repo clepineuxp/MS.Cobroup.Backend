@@ -54,6 +54,9 @@ public sealed record LoanTermsSnapshot(
             throw new ArgumentException("Frequency N days must be positive when EveryNDays is selected.", nameof(frequencyNDays));
         }
 
+        if (!Enum.IsDefined(paymentFrequency))
+            throw new ArgumentOutOfRangeException(nameof(paymentFrequency));
+
         return new(
             principalAmount,
             interestRate,
