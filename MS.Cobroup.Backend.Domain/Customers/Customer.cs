@@ -19,13 +19,15 @@ public sealed class Customer
         IReadOnlyCollection<CustomerPhoneValue> requestedPhones,
         IReadOnlyCollection<CustomerLocationValue> requestedLocations,
         Guid createdByUserId,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        string identification)
     {
         if (tenantId == Guid.Empty || routeId == Guid.Empty || createdByUserId == Guid.Empty)
         {
             throw new ArgumentException("Tenant, route and creator are required.");
         }
 
+        Identification = RequireIdentification(identification, allowLegacyZero: false);
         Id = Guid.NewGuid();
         TenantId = tenantId;
         RouteId = routeId;
@@ -46,6 +48,8 @@ public sealed class Customer
     public Guid TenantId { get; private set; }
 
     public Guid RouteId { get; private set; }
+
+    public string Identification { get; private set; } = string.Empty;
 
     public string FirstNames { get; private set; } = string.Empty;
 
@@ -79,7 +83,8 @@ public sealed class Customer
         IReadOnlyCollection<CustomerPhoneValue> phones,
         IReadOnlyCollection<CustomerLocationValue> locations,
         Guid createdByUserId,
-        DateTimeOffset createdAtUtc) =>
+        DateTimeOffset createdAtUtc,
+        string identification) =>
         new(
             tenantId,
             routeId,
@@ -90,7 +95,8 @@ public sealed class Customer
             phones,
             locations,
             createdByUserId,
-            createdAtUtc);
+            createdAtUtc,
+            identification);
 
     public void Update(
         Guid routeId,
@@ -102,13 +108,15 @@ public sealed class Customer
         IReadOnlyCollection<CustomerPhoneValue> requestedPhones,
         IReadOnlyCollection<CustomerLocationValue> requestedLocations,
         Guid updatedByUserId,
-        DateTimeOffset updatedAtUtc)
+        DateTimeOffset updatedAtUtc,
+        string identification)
     {
         if (routeId == Guid.Empty || updatedByUserId == Guid.Empty)
         {
             throw new ArgumentException("Route and updater are required.");
         }
 
+        Identification = RequireIdentification(identification, allowLegacyZero: Identification == "0");
         RouteId = routeId;
         FirstNames = Require(firstNames, nameof(firstNames), 120);
         LastNames = Require(lastNames, nameof(lastNames), 120);
@@ -163,6 +171,16 @@ public sealed class Customer
             item.Address,
             item.IsPrimary,
             item.Source)));
+    }
+
+    private static string RequireIdentification(string value, bool allowLegacyZero)
+    {
+        var normalized = Require(value, nameof(Identification), 64);
+        if (normalized == "0" && !allowLegacyZero)
+        {
+            throw new ArgumentException("Identification 0 is reserved for existing customers migrated without identification.", nameof(Identification));
+        }
+        return normalized;
     }
 
     private static string Require(string value, string parameterName, int maximumLength)

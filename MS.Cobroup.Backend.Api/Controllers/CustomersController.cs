@@ -86,7 +86,8 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
                     item.Alias,
                     item.Address,
                     item.IsPrimary,
-                    item.Source)).ToArray() ?? []),
+                    item.Source)).ToArray() ?? [],
+                request.Identification),
             cancellationToken);
         return result.Outcome is CustomerOutcome.Created
             ? Created($"/api/operations/v1/customers/{result.Customer!.Id}", result.Customer)
@@ -122,7 +123,8 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
                     item.Alias,
                     item.Address,
                     item.IsPrimary,
-                    item.Source)).ToArray() ?? []),
+                    item.Source)).ToArray() ?? [],
+                request.Identification),
             cancellationToken);
         return ToActionResult(result);
     }
@@ -151,7 +153,8 @@ public sealed record CustomerWriteRequest(
     string? Observations,
     CustomerStatus Status,
     IReadOnlyCollection<CustomerPhoneRequest>? Phones,
-    IReadOnlyCollection<CustomerLocationRequest>? Locations);
+    IReadOnlyCollection<CustomerLocationRequest>? Locations,
+    string Identification);
 
 public sealed record CustomerPhoneRequest(string Number, bool IsPrimary);
 

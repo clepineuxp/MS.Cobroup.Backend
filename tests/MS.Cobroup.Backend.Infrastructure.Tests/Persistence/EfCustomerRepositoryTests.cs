@@ -65,5 +65,5 @@ public sealed class EfCustomerRepositoryTests
         [new("3001112233", true)],
         [new(4.711m, -74.072m, "Casa", null, true, LocationSource.Manual)],
         Guid.NewGuid(),
-        DateTimeOffset.UtcNow);
+        DateTimeOffset.UtcNow, "001234567");
 }

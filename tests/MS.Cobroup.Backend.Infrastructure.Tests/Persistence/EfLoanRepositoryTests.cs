@@ -174,7 +174,7 @@ public sealed class EfLoanRepositoryTests
             [new("3009998877", true)],
             [new(4.711m, -74.072m, "Local Principal", null, true, LocationSource.Manual)],
             Guid.NewGuid(),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow, "001234567");
 
     private static OperationsDbContext CreateContext(string connectionString)
     {
