@@ -13,7 +13,9 @@ public sealed record AccessibleRoute(
     string? Description,
     string AccessAs,
     int? MaxActiveCustomers,
-    int? MaxActiveLoans);
+    int? MaxActiveLoans,
+    decimal InitialBalance = 0m,
+    string TimeZoneId = "America/Bogota");
 
 public enum RouteDirectoryOutcome
 {
