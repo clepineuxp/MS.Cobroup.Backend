@@ -31,6 +31,10 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
 
     public DbSet<RouteFinancialEntry> RouteFinancialEntries => Set<RouteFinancialEntry>();
 
+    public DbSet<RouteDayClosing> RouteDayClosings => Set<RouteDayClosing>();
+
+    public DbSet<FinancialMovementAuditLog> FinancialMovementAuditLogs => Set<FinancialMovementAuditLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.HasDefaultSchema("operations");
@@ -224,6 +228,30 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
             entity.HasIndex(item => new { item.TenantId, item.RouteId, item.CreatedAtUtc });
             entity.HasIndex(item => new { item.TenantId, item.RouteId, item.Type });
+        });
+
+        modelBuilder.Entity<RouteDayClosing>(entity =>
+        {
+            entity.ToTable("route_day_closings");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.ClosedByDisplayName).HasMaxLength(160);
+            entity.Property(item => item.ReopenedByDisplayName).HasMaxLength(160);
+            entity.HasIndex(item => new { item.TenantId, item.RouteId, item.BusinessDate }).IsUnique();
+        });
+
+        modelBuilder.Entity<FinancialMovementAuditLog>(entity =>
+        {
+            entity.ToTable("financial_movement_audit_logs");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.EntityType).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(item => item.Action).HasConversion<string>().HasMaxLength(32).IsRequired();
+            entity.Property(item => item.Concept).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.Amount).HasPrecision(18, 2).IsRequired();
+            entity.Property(item => item.Details).HasMaxLength(4000).IsRequired();
+            entity.Property(item => item.PerformedByDisplayName).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.PerformedByUserRole).HasMaxLength(32).IsRequired();
+            entity.HasIndex(item => new { item.TenantId, item.RouteId, item.TimestampUtc });
+            entity.HasIndex(item => new { item.TenantId, item.EntityId });
         });
     }
 }

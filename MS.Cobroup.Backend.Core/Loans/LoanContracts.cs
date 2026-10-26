@@ -104,6 +104,7 @@ public sealed class LoanResult
         ErrorMessage = errorMessage;
     }
 
+    public static LoanResult Success() => new(LoanOutcome.Success, null, null);
     public static LoanResult Success(LoanDetails loan) => new(LoanOutcome.Success, loan, null);
     public static LoanResult Created(LoanDetails loan) => new(LoanOutcome.Created, loan, null);
     public static LoanResult NotFound(string message = "Préstamo no encontrado.") => new(LoanOutcome.NotFound, null, message);

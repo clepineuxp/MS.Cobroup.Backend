@@ -53,9 +53,33 @@ public sealed class EfPaymentRepository(OperationsDbContext dbContext) : IPaymen
             .OrderBy(p => p.RegisteredAtUtc)
             .ToArrayAsync(cancellationToken);
 
+    public Task<Payment?> FindTodayPaymentAsync(
+        Guid tenantId,
+        Guid customerId,
+        Guid routeId,
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        CancellationToken cancellationToken) =>
+        dbContext.Payments
+            .Include(p => p.Allocations)
+            .Include(p => p.Evidences)
+            .FirstOrDefaultAsync(
+                p => p.TenantId == tenantId && p.CustomerId == customerId && p.RouteId == routeId
+                    && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc <= toUtc,
+                cancellationToken);
+
     public async Task AddAsync(Payment payment, CancellationToken cancellationToken)
     {
         await dbContext.Payments.AddAsync(payment, cancellationToken);
+    }
+
+    public async Task DeletePaymentAsync(
+        Payment payment,
+        Domain.Loans.Loan loan,
+        CancellationToken cancellationToken)
+    {
+        dbContext.Payments.Remove(payment);
+        await dbContext.SaveChangesAsync(cancellationToken);
     }
 
     public async Task<PaymentSaveOutcome> TryRegisterPaymentAsync(

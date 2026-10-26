@@ -16,6 +16,21 @@ public interface IRouteFinanceRepository
 
     Task AddEntryAsync(RouteFinancialEntry entry, CancellationToken cancellationToken);
 
+    Task RemoveEntryAsync(RouteFinancialEntry entry, CancellationToken cancellationToken);
+
+    Task<RouteDayClosing?> FindDayClosingAsync(Guid tenantId, Guid routeId, DateOnly businessDate, CancellationToken cancellationToken);
+
+    Task SaveDayClosingAsync(RouteDayClosing closing, CancellationToken cancellationToken);
+
+    Task AddAuditLogAsync(FinancialMovementAuditLog auditLog, CancellationToken cancellationToken);
+
+    Task<IReadOnlyCollection<FinancialMovementAuditLog>> ListAuditLogsAsync(
+        Guid tenantId,
+        Guid? routeId,
+        DateTimeOffset? fromTimestampUtc,
+        DateTimeOffset? toTimestampUtc,
+        CancellationToken cancellationToken);
+
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }
 

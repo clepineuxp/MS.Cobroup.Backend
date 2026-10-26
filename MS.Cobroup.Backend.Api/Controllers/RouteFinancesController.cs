@@ -48,6 +48,53 @@ public sealed class RouteFinancesController(RouteFinanceService service) : Contr
         return Map(await service.UpdateEntryAsync(command, entryId, request.ToInput(), cancellationToken));
     }
 
+    [HttpDelete("entries/{entryId:guid}")]
+    public async Task<IActionResult> DeleteEntry(
+        Guid entryId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.DeleteEntryAsync(command, entryId, cancellationToken));
+    }
+
+    [HttpPost("{routeId:guid}/close-day")]
+    public async Task<IActionResult> CloseDay(
+        Guid routeId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.CloseDayAsync(command, routeId, cancellationToken));
+    }
+
+    [HttpPost("{routeId:guid}/reopen-day")]
+    public async Task<IActionResult> ReopenDay(
+        Guid routeId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.ReopenDayAsync(command, routeId, cancellationToken));
+    }
+
+    [HttpGet("{routeId:guid}/closing-status")]
+    public async Task<IActionResult> GetDayClosingStatus(
+        Guid routeId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.GetDayClosingStatusAsync(command, routeId, cancellationToken));
+    }
+
+    [HttpGet("audit-trace")]
+    public async Task<IActionResult> ListAuditTrace(
+        [FromQuery] Guid? routeId,
+        [FromQuery] DateTimeOffset? fromUtc,
+        [FromQuery] DateTimeOffset? toUtc,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.ListAuditTraceAsync(command, routeId, fromUtc, toUtc, cancellationToken));
+    }
+
     private bool TryReadCommand(out RouteFinanceCommand command)
     {
         if (!CustomerActorReader.TryRead(User, out var actor))
@@ -67,11 +114,14 @@ public sealed class RouteFinancesController(RouteFinanceService service) : Contr
     {
         RouteFinanceOutcome.Success when result.Balance is not null => Ok(result.Balance),
         RouteFinanceOutcome.Success when result.Entries is not null => Ok(result.Entries),
-        RouteFinanceOutcome.Success => Ok(result.Entry),
+        RouteFinanceOutcome.Success when result.ClosingStatus is not null => Ok(result.ClosingStatus),
+        RouteFinanceOutcome.Success when result.AuditLogs is not null => Ok(result.AuditLogs),
+        RouteFinanceOutcome.Success when result.Entry is not null => Ok(result.Entry),
+        RouteFinanceOutcome.Success => NoContent(),
         RouteFinanceOutcome.Created => Created($"/api/operations/v1/route-finances/entries/{result.Entry!.Id}", result.Entry),
         RouteFinanceOutcome.Invalid => BadRequest(new { message = result.Error }),
         RouteFinanceOutcome.NotFound => NotFound(),
-        RouteFinanceOutcome.Forbidden => Forbid(),
+        RouteFinanceOutcome.Forbidden => StatusCode(StatusCodes.Status403Forbidden, new { message = result.Error ?? "No autorizado para esta acción." }),
         RouteFinanceOutcome.Unauthorized => Unauthorized(),
         RouteFinanceOutcome.Unavailable => Problem("El directorio administrativo de rutas no está disponible.", statusCode: 503),
         _ => Problem("Resultado financiero inesperado.")

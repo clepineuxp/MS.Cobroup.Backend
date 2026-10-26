@@ -20,7 +20,20 @@ public interface IPaymentRepository
 
     Task AddAsync(Payment payment, CancellationToken cancellationToken);
 
+    Task<Payment?> FindTodayPaymentAsync(
+        Guid tenantId,
+        Guid customerId,
+        Guid routeId,
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        CancellationToken cancellationToken);
+
     Task<PaymentSaveOutcome> TryRegisterPaymentAsync(
+        Payment payment,
+        Loan loan,
+        CancellationToken cancellationToken);
+
+    Task DeletePaymentAsync(
         Payment payment,
         Loan loan,
         CancellationToken cancellationToken);

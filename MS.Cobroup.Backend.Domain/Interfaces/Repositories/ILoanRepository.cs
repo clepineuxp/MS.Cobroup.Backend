@@ -14,9 +14,19 @@ public interface ILoanRepository
         Guid? consumedExceptionId,
         CancellationToken cancellationToken);
 
+    Task<Loan?> FindTodayLoanAsync(
+        Guid tenantId,
+        Guid customerId,
+        Guid routeId,
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        CancellationToken cancellationToken);
+
     Task<int> CountActiveLoansByRouteAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken);
 
     Task<IReadOnlyCollection<Loan>> ListByCustomerAsync(Guid tenantId, Guid customerId, CancellationToken cancellationToken);
+
+    Task DeleteLoanAsync(Loan loan, CancellationToken cancellationToken);
 
     Task<LoanSearchPage> SearchAsync(
         Guid tenantId,

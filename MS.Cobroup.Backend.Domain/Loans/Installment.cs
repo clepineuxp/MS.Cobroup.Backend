@@ -71,5 +71,21 @@ public sealed class Installment
         PaidAmount += amount;
         Status = PaidAmount >= ExpectedAmount ? InstallmentStatus.Paid : InstallmentStatus.PartiallyPaid;
     }
+
+    public void RollbackPayment(decimal amount)
+    {
+        if (amount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "Rollback amount must be positive.");
+        }
+
+        if (amount > PaidAmount)
+        {
+            throw new InvalidOperationException($"Cannot rollback {amount} from installment #{Number} with paid amount {PaidAmount}.");
+        }
+
+        PaidAmount -= amount;
+        Status = PaidAmount <= 0 ? InstallmentStatus.Pending : InstallmentStatus.PartiallyPaid;
+    }
 }
 

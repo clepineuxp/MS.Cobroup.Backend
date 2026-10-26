@@ -67,6 +67,37 @@ public sealed class RouteFinanceServiceTests
         Assert.Equal("Administrador", repository.Entry.UpdatedByDisplayName);
     }
 
+    [Fact]
+    public async Task ClosedDayBlocksMovementsUntilAuthorizedSupervisorReopensIt()
+    {
+        var repository = new FakeRepository();
+        var service = CreateService(repository);
+        var closed = await service.CloseDayAsync(Command(UserRole.Collector), routeId, CancellationToken.None);
+        Assert.True(closed.ClosingStatus!.IsClosed);
+        var input = new SaveRouteFinancialEntryInput(routeId, RouteFinancialEntryType.Income, "Capital", null, 100m);
+        Assert.Equal(RouteFinanceOutcome.Invalid, (await service.CreateEntryAsync(Command(UserRole.Collector), input, CancellationToken.None)).Outcome);
+        Assert.Equal(RouteFinanceOutcome.Forbidden, (await service.ReopenDayAsync(Command(UserRole.Supervisor), routeId, CancellationToken.None)).Outcome);
+        var authorized = new RouteFinanceCommand(new CustomerActor(userId, tenantId, UserRole.Supervisor, true), "Supervisor", "token");
+        var reopened = await service.ReopenDayAsync(authorized, routeId, CancellationToken.None);
+        Assert.False(reopened.ClosingStatus!.IsClosed);
+        Assert.Equal(RouteFinanceOutcome.Created, (await service.CreateEntryAsync(Command(UserRole.Collector), input, CancellationToken.None)).Outcome);
+        Assert.Equal(3, repository.Audits.Count);
+    }
+
+    [Fact]
+    public async Task AuditTraceRejectsInaccessibleRouteAndFiltersUnassignedRoutes()
+    {
+        var repository = new FakeRepository();
+        var service = CreateService(repository);
+        var hiddenRoute = Guid.NewGuid();
+        foreach (var id in new[] { routeId, hiddenRoute })
+            repository.Audits.Add(FinancialMovementAuditLog.Create(tenantId, id, FinancialMovementEntityType.Payment,
+                Guid.NewGuid(), FinancialMovementAuditAction.Created, "Cobro", 20m, "Cobro registrado", userId, "Supervisor", "Supervisor", DateTimeOffset.UtcNow));
+        Assert.Equal(RouteFinanceOutcome.Forbidden, (await service.ListAuditTraceAsync(Command(UserRole.Supervisor), hiddenRoute, null, null, CancellationToken.None)).Outcome);
+        var result = await service.ListAuditTraceAsync(Command(UserRole.Supervisor), null, null, null, CancellationToken.None);
+        Assert.Equal(routeId, Assert.Single(result.AuditLogs!).RouteId);
+    }
+
     private RouteFinanceService CreateService(FakeRepository repository) =>
         new(repository, new FakeDirectory(routeId));
 
@@ -83,12 +114,19 @@ public sealed class RouteFinanceServiceTests
 
     private sealed class FakeRepository : IRouteFinanceRepository
     {
+        public RouteDayClosing? Closing { get; set; }
+        public List<FinancialMovementAuditLog> Audits { get; } = [];
         public RouteBalanceTotals Totals { get; set; } = new(0m, 0m, 0m, 0m);
         public RouteFinancialEntry? Entry { get; set; }
         public Task<RouteBalanceTotals> GetTotalsAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken) => Task.FromResult(Totals);
         public Task<IReadOnlyCollection<RouteFinancialEntry>> ListEntriesAsync(Guid tenantId, Guid routeId, IReadOnlyCollection<RouteFinancialEntryType> types, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<RouteFinancialEntry>>(Entry is null ? [] : [Entry]);
         public Task<RouteFinancialEntry?> FindEntryAsync(Guid tenantId, Guid entryId, CancellationToken cancellationToken) => Task.FromResult(Entry?.Id == entryId ? Entry : null);
         public Task AddEntryAsync(RouteFinancialEntry entry, CancellationToken cancellationToken) { Entry = entry; return Task.CompletedTask; }
+        public Task RemoveEntryAsync(RouteFinancialEntry entry, CancellationToken cancellationToken) { Entry = null; return Task.CompletedTask; }
+        public Task<RouteDayClosing?> FindDayClosingAsync(Guid tenantId, Guid routeId, DateOnly businessDate, CancellationToken cancellationToken) => Task.FromResult(Closing);
+        public Task SaveDayClosingAsync(RouteDayClosing closing, CancellationToken cancellationToken) { Closing = closing; return Task.CompletedTask; }
+        public Task AddAuditLogAsync(FinancialMovementAuditLog auditLog, CancellationToken cancellationToken) { Audits.Add(auditLog); return Task.CompletedTask; }
+        public Task<IReadOnlyCollection<FinancialMovementAuditLog>> ListAuditLogsAsync(Guid tenantId, Guid? routeId, DateTimeOffset? fromTimestampUtc, DateTimeOffset? toTimestampUtc, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<FinancialMovementAuditLog>>(Audits);
         public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
     }
 }

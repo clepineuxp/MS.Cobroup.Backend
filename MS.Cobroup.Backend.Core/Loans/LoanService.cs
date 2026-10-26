@@ -1,10 +1,13 @@
 using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Core.LoanTemplates;
+using MS.Cobroup.Backend.Core.RouteFinances;
 using MS.Cobroup.Backend.Core.Routes;
+using MS.Cobroup.Backend.Domain.Authorization;
 using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 using MS.Cobroup.Backend.Domain.LoanExceptions;
 using MS.Cobroup.Backend.Domain.Loans;
+using MS.Cobroup.Backend.Domain.RouteFinances;
 
 namespace MS.Cobroup.Backend.Core.Loans;
 
@@ -13,7 +16,8 @@ public sealed class LoanService(
     ICustomerRepository customerRepository,
     ILoanExceptionRepository exceptionRepository,
     IAdministrativeRouteDirectory routeDirectory,
-    IAdministrativeLoanTemplateDirectory templateDirectory)
+    IAdministrativeLoanTemplateDirectory templateDirectory,
+    IRouteFinanceRepository financeRepository)
 {
     public async Task<LoanResult> OriginateAsync(
         OriginateLoanCommand command,
@@ -66,6 +70,27 @@ public sealed class LoanService(
         if (customer.Status != CustomerStatus.Active)
         {
             return LoanResult.Invalid("No se puede originar un préstamo para un cliente inactivo.");
+        }
+
+        // Check Day Closing and Route Timezone
+        var routeTz = RouteFinanceService.ResolveBusinessTimeZone(accessibleRoute.TimeZoneId);
+        var now = DateTimeOffset.UtcNow;
+        var localNow = TimeZoneInfo.ConvertTime(now, routeTz);
+        var localDate = DateOnly.FromDateTime(localNow.DateTime);
+
+        var dayClosing = await financeRepository.FindDayClosingAsync(command.Actor.TenantId, customer.RouteId, localDate, cancellationToken);
+        if (dayClosing?.IsClosed ?? false)
+        {
+            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible crear nuevos préstamos.");
+        }
+
+        // Check 1 Loan per customer per day in route
+        var startOfDayUtc = TimeZoneInfo.ConvertTimeToUtc(localNow.Date, routeTz);
+        var endOfDayUtc = TimeZoneInfo.ConvertTimeToUtc(localNow.Date.AddDays(1).AddTicks(-1), routeTz);
+        var existingTodayLoan = await loanRepository.FindTodayLoanAsync(command.Actor.TenantId, customer.Id, customer.RouteId, startOfDayUtc, endOfDayUtc, cancellationToken);
+        if (existingTodayLoan is not null)
+        {
+            return LoanResult.Conflict("El cliente ya tiene un préstamo otorgado hoy en esta ruta. Para realizar ajustes, edita el préstamo existente.");
         }
 
         // Calculate schedule early to check duration
@@ -175,7 +200,6 @@ public sealed class LoanService(
             return LoanResult.Invalid("Debe seleccionar una plantilla publicada o una solicitud de excepción aprobada.");
         }
 
-        var now = DateTimeOffset.UtcNow;
         var startsAtUtc = new DateTimeOffset(input.StartDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
         var dueAtUtc = new DateTimeOffset(schedule.DueDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
 
@@ -236,7 +260,205 @@ public sealed class LoanService(
         }
 
         var customerName = $"{customer.FirstNames} {customer.LastNames}".Trim();
+
+        var audit = FinancialMovementAuditLog.Create(
+            command.Actor.TenantId,
+            customer.RouteId,
+            FinancialMovementEntityType.Loan,
+            loan.Id,
+            FinancialMovementAuditAction.Created,
+            "Préstamo otorgado",
+            loan.Terms.PrincipalAmount,
+            $"Préstamo otorgado a cliente {customerName} por valor de {loan.Terms.PrincipalAmount:N2}. Total: {loan.Terms.TotalAmount:N2}.",
+            command.Actor.UserId,
+            command.Actor.UserId.ToString("D"),
+            command.Actor.Role.ToString(),
+            now);
+        await financeRepository.AddAuditLogAsync(audit, cancellationToken);
+        await financeRepository.SaveChangesAsync(cancellationToken);
+
         return LoanResult.Created(ToDetails(loan, customerName, accessibleRoute.Name));
+    }
+
+    public async Task<LoanResult> UpdateLoanAsync(
+        Guid loanId,
+        OriginateLoanCommand command,
+        CancellationToken cancellationToken)
+    {
+        var input = command.Input;
+        var routes = await routeDirectory.ListAccessibleAsync(command.AccessToken, cancellationToken);
+        if (routes.Outcome is not RouteDirectoryOutcome.Success)
+        {
+            return MapFailure(routes.Outcome);
+        }
+
+        var loan = await loanRepository.FindAsync(command.Actor.TenantId, loanId, cancellationToken);
+        if (loan is null)
+        {
+            return LoanResult.NotFound("Préstamo no encontrado.");
+        }
+
+        var accessibleRoute = routes.Routes.FirstOrDefault(r => r.Id == loan.RouteId);
+        if (accessibleRoute is null)
+        {
+            return LoanResult.Forbidden("No tiene autorización para modificar préstamos en esta ruta.");
+        }
+
+        var routeTz = RouteFinanceService.ResolveBusinessTimeZone(accessibleRoute.TimeZoneId);
+        var nowUtc = DateTimeOffset.UtcNow;
+        var localNow = TimeZoneInfo.ConvertTime(nowUtc, routeTz);
+        var localDate = DateOnly.FromDateTime(localNow.DateTime);
+
+        var dayClosing = await financeRepository.FindDayClosingAsync(command.Actor.TenantId, loan.RouteId, localDate, cancellationToken);
+        if (dayClosing?.IsClosed ?? false)
+        {
+            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible modificar préstamos.");
+        }
+
+        // Rule: Collector can only modify within same business day
+        var loanLocalCreated = TimeZoneInfo.ConvertTime(loan.CreatedAtUtc, routeTz);
+        var isSameDay = DateOnly.FromDateTime(loanLocalCreated.DateTime) == localDate;
+        if (command.Actor.Role is UserRole.Collector && !isSameDay)
+        {
+            return LoanResult.Forbidden("Los cobradores solo pueden modificar préstamos creados en el mismo día laboral.");
+        }
+
+        if (loan.Terms.PaidAmount > 0)
+        {
+            return LoanResult.Invalid("No se puede modificar un préstamo que ya cuenta con cobros o pagos aplicados.");
+        }
+
+        if (input.PrincipalAmount <= 0)
+            return LoanResult.Invalid("El monto principal debe ser positivo.");
+        if (input.InterestRate <= 0)
+            return LoanResult.Invalid("La tasa de porcentaje debe ser positiva.");
+        if (input.InstallmentCount <= 0)
+            return LoanResult.Invalid("El número de cuotas debe ser positivo.");
+
+        var schedule = LoanScheduleCalculator.Calculate(
+            input.PrincipalAmount,
+            input.InterestRate,
+            input.PaymentFrequency,
+            input.FrequencyNDays,
+            input.InstallmentCount,
+            input.StartDate);
+
+        var startsAtUtc = new DateTimeOffset(input.StartDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        var dueAtUtc = new DateTimeOffset(schedule.DueDate.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+
+        var termsSnapshot = LoanTermsSnapshot.Create(
+            schedule.PrincipalAmount,
+            schedule.InterestRate,
+            schedule.InterestAmount,
+            schedule.TotalAmount,
+            schedule.PaymentFrequency,
+            schedule.FrequencyNDays,
+            schedule.InstallmentCount,
+            startsAtUtc,
+            dueAtUtc);
+
+        var installments = schedule.Installments.Select(i =>
+            Installment.Create(
+                command.Actor.TenantId,
+                loan.Id,
+                i.Number,
+                i.DueDate,
+                i.ExpectedAmount)).ToList();
+
+        loan.UpdateTerms(termsSnapshot, installments);
+        await loanRepository.SaveChangesAsync(cancellationToken);
+
+        var customer = await customerRepository.FindAsync(command.Actor.TenantId, loan.CustomerId, cancellationToken);
+        var customerName = customer is not null ? $"{customer.FirstNames} {customer.LastNames}".Trim() : string.Empty;
+
+        var audit = FinancialMovementAuditLog.Create(
+            command.Actor.TenantId,
+            loan.RouteId,
+            FinancialMovementEntityType.Loan,
+            loan.Id,
+            FinancialMovementAuditAction.Updated,
+            "Modificación de préstamo",
+            loan.Terms.PrincipalAmount,
+            $"Préstamo actualizado para cliente {customerName}. Nuevo monto: {loan.Terms.PrincipalAmount:N2}, total: {loan.Terms.TotalAmount:N2}.",
+            command.Actor.UserId,
+            command.Actor.UserId.ToString("D"),
+            command.Actor.Role.ToString(),
+            nowUtc);
+        await financeRepository.AddAuditLogAsync(audit, cancellationToken);
+        await financeRepository.SaveChangesAsync(cancellationToken);
+
+        return LoanResult.Success(ToDetails(loan, customerName, accessibleRoute.Name));
+    }
+
+    public async Task<LoanResult> DeleteLoanAsync(
+        Guid loanId,
+        CustomerActor actor,
+        string accessToken,
+        CancellationToken cancellationToken)
+    {
+        var routes = await routeDirectory.ListAccessibleAsync(accessToken, cancellationToken);
+        if (routes.Outcome is not RouteDirectoryOutcome.Success)
+        {
+            return MapFailure(routes.Outcome);
+        }
+
+        var loan = await loanRepository.FindAsync(actor.TenantId, loanId, cancellationToken);
+        if (loan is null)
+        {
+            return LoanResult.NotFound("Préstamo no encontrado.");
+        }
+
+        var accessibleRoute = routes.Routes.FirstOrDefault(r => r.Id == loan.RouteId);
+        if (accessibleRoute is null)
+        {
+            return LoanResult.Forbidden("No tiene autorización para eliminar préstamos en esta ruta.");
+        }
+
+        var routeTz = RouteFinanceService.ResolveBusinessTimeZone(accessibleRoute.TimeZoneId);
+        var nowUtc = DateTimeOffset.UtcNow;
+        var localNow = TimeZoneInfo.ConvertTime(nowUtc, routeTz);
+        var localDate = DateOnly.FromDateTime(localNow.DateTime);
+
+        var dayClosing = await financeRepository.FindDayClosingAsync(actor.TenantId, loan.RouteId, localDate, cancellationToken);
+        if (dayClosing?.IsClosed ?? false)
+        {
+            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible eliminar préstamos.");
+        }
+
+        var loanLocalCreated = TimeZoneInfo.ConvertTime(loan.CreatedAtUtc, routeTz);
+        var isSameDay = DateOnly.FromDateTime(loanLocalCreated.DateTime) == localDate;
+        if (actor.Role is UserRole.Collector && !isSameDay)
+        {
+            return LoanResult.Forbidden("Los cobradores solo pueden eliminar préstamos creados en el mismo día laboral.");
+        }
+
+        if (loan.Terms.PaidAmount > 0)
+        {
+            return LoanResult.Invalid("No se puede eliminar un préstamo que ya cuenta con cobros o pagos aplicados.");
+        }
+
+        var customer = await customerRepository.FindAsync(actor.TenantId, loan.CustomerId, cancellationToken);
+        var customerName = customer is not null ? $"{customer.FirstNames} {customer.LastNames}".Trim() : string.Empty;
+
+        await loanRepository.DeleteLoanAsync(loan, cancellationToken);
+
+        var audit = FinancialMovementAuditLog.Create(
+            actor.TenantId,
+            loan.RouteId,
+            FinancialMovementEntityType.Loan,
+            loan.Id,
+            FinancialMovementAuditAction.Deleted,
+            "Eliminación de préstamo",
+            loan.Terms.PrincipalAmount,
+            $"Préstamo eliminado para cliente {customerName} por valor de {loan.Terms.PrincipalAmount:N2}.",
+            actor.UserId,
+            actor.UserId.ToString("D"),
+            actor.Role.ToString(),
+            nowUtc);
+        await financeRepository.AddAuditLogAsync(audit, cancellationToken);
+        await financeRepository.SaveChangesAsync(cancellationToken);
+
+        return LoanResult.Success();
     }
 
     public async Task<LoanResult> GetAsync(

@@ -4,7 +4,7 @@ using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 
 namespace MS.Cobroup.Backend.Core.Customers;
 
-public sealed record CustomerActor(Guid UserId, Guid TenantId, UserRole Role);
+public sealed record CustomerActor(Guid UserId, Guid TenantId, UserRole Role, bool CanReopenDay = false);
 
 public sealed record CustomerPhoneInput(string Number, bool IsPrimary);
 

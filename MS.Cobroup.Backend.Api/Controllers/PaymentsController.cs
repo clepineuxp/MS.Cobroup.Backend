@@ -54,6 +54,51 @@ public sealed class PaymentsController(
         return MapResult(result);
     }
 
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(
+        [FromRoute] Guid id,
+        [FromBody] UpdatePaymentRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var input = new UpdatePaymentInput(
+            request.Amount,
+            request.PaymentMethodId,
+            request.Notes);
+
+        var result = await service.UpdatePaymentAsync(
+            actor,
+            id,
+            input,
+            CustomerActorReader.ReadBearerToken(Request),
+            cancellationToken);
+
+        return MapResult(result);
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(
+        [FromRoute] Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var result = await service.DeletePaymentAsync(
+            actor,
+            id,
+            CustomerActorReader.ReadBearerToken(Request),
+            cancellationToken);
+
+        return MapResult(result);
+    }
+
     [HttpGet("by-loan/{loanId:guid}")]
     public async Task<IActionResult> ListByLoan(
         [FromRoute] Guid loanId,
@@ -231,6 +276,11 @@ public sealed record RegisterPaymentRequest(
     Guid PaymentMethodId,
     string? Notes,
     string IdempotencyKey);
+
+public sealed record UpdatePaymentRequest(
+    decimal Amount,
+    Guid PaymentMethodId,
+    string? Notes);
 
 public sealed record DeletePaymentEvidenceRequest(
     string Reason);

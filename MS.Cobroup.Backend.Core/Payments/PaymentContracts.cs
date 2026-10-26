@@ -10,6 +10,11 @@ public sealed record RegisterPaymentInput(
     string? Notes,
     string IdempotencyKey);
 
+public sealed record UpdatePaymentInput(
+    decimal Amount,
+    Guid PaymentMethodId,
+    string? Notes);
+
 public sealed record PaymentDetails(
     Guid Id,
     Guid LoanId,

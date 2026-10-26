@@ -159,5 +159,49 @@ public sealed class Loan
             Status = LoanStatus.PaidOff;
         }
     }
+
+    public void RollbackPayment(decimal amount)
+    {
+        if (amount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "Rollback amount must be positive.");
+        }
+
+        if (amount > Terms.PaidAmount)
+        {
+            throw new InvalidOperationException($"Cannot rollback payment amount ({amount}) exceeding paid amount ({Terms.PaidAmount}).");
+        }
+
+        var newPaid = Terms.PaidAmount - amount;
+        var newBalance = Terms.BalanceAmount + amount;
+
+        Terms = Terms with
+        {
+            PaidAmount = newPaid,
+            BalanceAmount = newBalance
+        };
+
+        if (Status == LoanStatus.PaidOff && newBalance > 0m)
+        {
+            Status = LoanStatus.Active;
+        }
+    }
+
+    public void UpdateTerms(LoanTermsSnapshot newTerms, IEnumerable<Installment> newInstallments)
+    {
+        ArgumentNullException.ThrowIfNull(newTerms);
+        if (Terms.PaidAmount > 0)
+        {
+            throw new InvalidOperationException("Cannot update loan terms when payments have already been applied.");
+        }
+        var instList = newInstallments.ToList();
+        if (instList.Count != newTerms.InstallmentCount)
+        {
+            throw new ArgumentException("Installments count does not match terms count.");
+        }
+        Terms = newTerms;
+        installments.Clear();
+        installments.AddRange(instList);
+    }
 }
 

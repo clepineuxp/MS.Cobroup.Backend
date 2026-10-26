@@ -15,6 +15,7 @@ public sealed class LoanServiceTests
     private readonly InMemoryLoanRepository loanRepository = new();
     private readonly InMemoryCustomerRepository customerRepository = new();
     private readonly InMemoryLoanExceptionRepository exceptionRepository = new();
+    private readonly TestDoubles.InMemoryRouteFinanceRepository financeRepository = new();
     private readonly FakeRouteDirectory routeDirectory = new();
     private readonly FakeLoanTemplateDirectory templateDirectory = new();
     private readonly LoanService service;
@@ -26,7 +27,8 @@ public sealed class LoanServiceTests
             customerRepository,
             exceptionRepository,
             routeDirectory,
-            templateDirectory);
+            templateDirectory,
+            financeRepository);
     }
 
     [Fact]
@@ -409,6 +411,63 @@ public sealed class LoanServiceTests
         }
     }
 
+    [Fact]
+    public async Task OriginateAsync_fails_when_day_is_closed()
+    {
+        var tenantId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var collectorId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+
+        routeDirectory.Routes = [new(routeId, "Ruta Centro", null, "Cobrador 1", 10, 10)];
+        templateDirectory.Templates = [new(templateId, "Plantilla 20D", "Desc", "Standard", "Published", 1, 20, 1000m, [10m, 15m, 20m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
+
+        var customer = CreateCustomer(tenantId, routeId);
+        customerRepository.Add(customer);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        financeRepository.DayClosings.Add(Domain.RouteFinances.RouteDayClosing.CreateClosed(
+            tenantId, routeId, today, collectorId, "Cierre de prueba", DateTimeOffset.UtcNow));
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var input = new OriginateLoanInput(
+            customer.Id, 800m, 15m, PaymentFrequency.Daily, null, 20, templateId, 1, null, new DateOnly(2026, 11, 1));
+
+        var result = await service.OriginateAsync(new OriginateLoanCommand(actor, "token", input), CancellationToken.None);
+
+        Assert.Equal(LoanOutcome.Conflict, result.Outcome);
+        Assert.Contains("El día se encuentra cerrado", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task OriginateAsync_fails_when_customer_already_has_loan_today()
+    {
+        var tenantId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var collectorId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+
+        routeDirectory.Routes = [new(routeId, "Ruta Centro", null, "Cobrador 1", 10, 10)];
+        templateDirectory.Templates = [new(templateId, "Plantilla 20D", "Desc", "Standard", "Published", 1, 20, 1000m, [10m, 15m, 20m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
+
+        var customer = CreateCustomer(tenantId, routeId);
+        customerRepository.Add(customer);
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var input1 = new OriginateLoanInput(
+            customer.Id, 800m, 15m, PaymentFrequency.Daily, null, 20, templateId, 1, null, new DateOnly(2026, 11, 1));
+
+        var result1 = await service.OriginateAsync(new OriginateLoanCommand(actor, "token", input1), CancellationToken.None);
+        Assert.Equal(LoanOutcome.Created, result1.Outcome);
+
+        var input2 = new OriginateLoanInput(
+            customer.Id, 500m, 15m, PaymentFrequency.Daily, null, 20, templateId, 1, null, new DateOnly(2026, 11, 1));
+        var result2 = await service.OriginateAsync(new OriginateLoanCommand(actor, "token", input2), CancellationToken.None);
+
+        Assert.Equal(LoanOutcome.Conflict, result2.Outcome);
+        Assert.Contains("El cliente ya tiene un préstamo otorgado hoy", result2.ErrorMessage);
+    }
+
     private static Customer CreateCustomer(Guid tenantId, Guid routeId)
     {
         return Customer.Create(
@@ -432,9 +491,18 @@ public sealed class LoanServiceTests
         public Task<Loan?> FindAsync(Guid tenantId, Guid loanId, CancellationToken cancellationToken) =>
             Task.FromResult(loans.SingleOrDefault(l => l.TenantId == tenantId && l.Id == loanId));
 
+        public Task<Loan?> FindTodayLoanAsync(Guid tenantId, Guid customerId, Guid routeId, DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(loans.FirstOrDefault(l => l.TenantId == tenantId && l.CustomerId == customerId && l.RouteId == routeId && l.CreatedAtUtc >= fromUtc && l.CreatedAtUtc <= toUtc));
+
         public Task AddAsync(Loan loan, CancellationToken cancellationToken)
         {
             loans.Add(loan);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteLoanAsync(Loan loan, CancellationToken cancellationToken)
+        {
+            loans.Remove(loan);
             return Task.CompletedTask;
         }
 

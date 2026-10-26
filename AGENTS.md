@@ -379,3 +379,12 @@
 - Rama activa verificada: feature/customer-identification. Eliminado el seguimiento incorrecto de origin/dev. Configuración local: push.default=current, push.autoSetupRemote=true y branch.autoSetupMerge=false; futuros pushes por defecto usarán el mismo nombre de rama y nuevas features no heredarán origin/dev automáticamente.
 - La rama remota feature/customer-identification no existía al verificar; no se hizo push. Los commits permanecen locales. En documentación se creó esta rama desde la fundación local existente, conservando los cinco commits previos sin reset ni merge.
 
+
+### 2026-10-26 — Corrección y validación del último cambio de Gemini
+
+- Solicitud: investigar por qué no ejecutan los backend y conservar operativa la funcionalidad nueva.
+- Hallazgos: BackendAdmin no compilaba por import faltante de UserRole; cambios EF sin migraciones; endpoint administrativo de auditoría ausente y nombres de filtros distintos entre frontend y API operativa. Instancia Debug operativa bajo Visual Studio bloquea sus DLL.
+- Correcciones: import de Authorization; migración AddDayClosingAndFinancialAudit y SQL idempotente; auditoría limitada a rutas autorizadas y propagación de fallos del directorio; cierre y su auditoría se guardan en un único SaveChanges.
+- Validación: build Release sin errores; Core 114/114 e Infrastructure aislada 119/119. Pruebas nuevas de bloqueo del día cerrado, reapertura con permisos y aislamiento por ruta. Modelo EF sin diferencias pendientes. Arranque HTTP y /health/live 200; auditoría sin token 401.
+- Limitación: PostgreSQL dev_cobroup_operations en la conexión configurada agota el tiempo de espera incluso al consultar historial EF; migraciones no aplicadas y flujo autenticado contra BD real pendiente. Conexión TCP abre, pero sesión PostgreSQL no completa. No se alteraron datos reales.
+- Git: cambios existentes conservados en feature/unique-transaction. Sin commit, push ni despliegue.

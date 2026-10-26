@@ -160,9 +160,58 @@ public sealed class LoansController(LoanService service) : ControllerBase
         return Ok(schedule);
     }
 
+    [HttpPut("{id:guid}")]
+    public async Task<IActionResult> Update(
+        Guid id,
+        [FromBody] OriginateLoanRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var result = await service.UpdateLoanAsync(
+            id,
+            new OriginateLoanCommand(
+                actor,
+                CustomerActorReader.ReadBearerToken(Request),
+                new OriginateLoanInput(
+                    request.CustomerId,
+                    request.PrincipalAmount,
+                    request.InterestRate,
+                    request.PaymentFrequency,
+                    request.FrequencyNDays,
+                    request.InstallmentCount,
+                    request.LoanTemplateId,
+                    request.LoanTemplateVersion,
+                    request.ExceptionRequestId,
+                    request.StartDate)),
+            cancellationToken);
+
+        return MapResult(result);
+    }
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var result = await service.DeleteLoanAsync(
+            id,
+            actor,
+            CustomerActorReader.ReadBearerToken(Request),
+            cancellationToken);
+
+        return MapResult(result);
+    }
+
     private IActionResult MapResult(LoanResult result) => result.Outcome switch
     {
-        LoanOutcome.Success => Ok(result.Loan),
+        LoanOutcome.Success => result.Loan is not null ? Ok(result.Loan) : NoContent(),
         LoanOutcome.Created => Created($"/api/operations/v1/loans/{result.Loan!.Id}", result.Loan),
         LoanOutcome.Invalid => BadRequest(new { message = result.ErrorMessage }),
         LoanOutcome.NotFound => NotFound(new { message = result.ErrorMessage }),

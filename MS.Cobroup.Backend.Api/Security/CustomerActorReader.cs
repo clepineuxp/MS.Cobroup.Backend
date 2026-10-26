@@ -23,7 +23,8 @@ public static class CustomerActorReader
             return false;
         }
 
-        actor = new CustomerActor(userId, tenantId, parsedRole);
+        var canReopenDay = string.Equals(principal.FindFirstValue("can_reopen_day"), "true", StringComparison.OrdinalIgnoreCase);
+        actor = new CustomerActor(userId, tenantId, parsedRole, canReopenDay);
         return true;
     }
 

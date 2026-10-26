@@ -11,8 +11,28 @@ public sealed class EfLoanRepository(OperationsDbContext dbContext) : ILoanRepos
             .Include(l => l.Installments)
             .SingleOrDefaultAsync(l => l.TenantId == tenantId && l.Id == loanId, cancellationToken);
 
+    public Task<Loan?> FindTodayLoanAsync(
+        Guid tenantId,
+        Guid customerId,
+        Guid routeId,
+        DateTimeOffset fromUtc,
+        DateTimeOffset toUtc,
+        CancellationToken cancellationToken) =>
+        dbContext.Loans
+            .Include(l => l.Installments)
+            .FirstOrDefaultAsync(
+                l => l.TenantId == tenantId && l.CustomerId == customerId && l.RouteId == routeId
+                    && l.CreatedAtUtc >= fromUtc && l.CreatedAtUtc <= toUtc,
+                cancellationToken);
+
     public async Task AddAsync(Loan loan, CancellationToken cancellationToken) =>
         await dbContext.Loans.AddAsync(loan, cancellationToken);
+
+    public async Task DeleteLoanAsync(Loan loan, CancellationToken cancellationToken)
+    {
+        dbContext.Loans.Remove(loan);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 
     public async Task<LoanSaveOutcome> TryAddAsync(
         Loan loan,
