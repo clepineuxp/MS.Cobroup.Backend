@@ -13,6 +13,7 @@ public sealed class PaymentServiceTests
 {
     private readonly InMemoryPaymentRepository paymentRepository = new();
     private readonly InMemoryLoanRepository loanRepository = new();
+    private readonly TestDoubles.InMemoryRouteFinanceRepository financeRepository = new();
     private readonly FakeRouteDirectory routeDirectory = new();
     private readonly FakePaymentMethodDirectory paymentMethodDirectory = new();
     private readonly FakeFileStorageService fileStorageService = new();
@@ -30,7 +31,8 @@ public sealed class PaymentServiceTests
             loanRepository,
             routeDirectory,
             paymentMethodDirectory,
-            fileStorageService);
+            fileStorageService,
+            financeRepository);
 
         routeDirectory.Routes = [new(routeId, "Ruta Centro", null, "Cobrador 1", 10, 10)];
         paymentMethodDirectory.Methods = [new(paymentMethodId, "Efectivo", 1)];
@@ -136,7 +138,8 @@ public sealed class PaymentServiceTests
         Assert.Equal(250m, alloc2.AmountAllocated);
         Assert.False(alloc2.IsFullyCovered);
 
-        // Payment 2: Remaining 250 (covers the rest of installment 2, finishes loan)
+        // Payment 2: Remaining 250 on a subsequent day (clearing today's payment lock, loan state remains)
+        paymentRepository.Payments.Clear();
         var input2 = new RegisterPaymentInput(loan.Id, 250m, paymentMethodId, "Pago liquidación", "KEY-PARTIAL-2");
         var result2 = await service.RegisterPaymentAsync(actor, input2, "token", CancellationToken.None);
 
@@ -152,8 +155,12 @@ public sealed class PaymentServiceTests
     public async Task GetDailyReconciliationAsync_groups_payments_by_payment_method()
     {
         var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
-        var loan = CreateSampleLoan(2000m, 4);
-        loanRepository.Add(loan);
+        var loan1 = CreateSampleLoan(1000m, 2);
+        var loan2 = CreateSampleLoan(1000m, 2);
+        var loan3 = CreateSampleLoan(1000m, 2);
+        loanRepository.Add(loan1);
+        loanRepository.Add(loan2);
+        loanRepository.Add(loan3);
 
         var transferMethodId = Guid.NewGuid();
         paymentMethodDirectory.Methods =
@@ -167,12 +174,12 @@ public sealed class PaymentServiceTests
         catch { tz = TimeZoneInfo.Utc; }
         var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz));
 
-        // 2 payments with Efectivo (200 + 300 = 500)
-        await service.RegisterPaymentAsync(actor, new RegisterPaymentInput(loan.Id, 200m, paymentMethodId, null, "P-1"), "token", CancellationToken.None);
-        await service.RegisterPaymentAsync(actor, new RegisterPaymentInput(loan.Id, 300m, paymentMethodId, null, "P-2"), "token", CancellationToken.None);
+        // 2 payments with Efectivo (200 + 300 = 500) from two distinct customers
+        await service.RegisterPaymentAsync(actor, new RegisterPaymentInput(loan1.Id, 200m, paymentMethodId, null, "P-1"), "token", CancellationToken.None);
+        await service.RegisterPaymentAsync(actor, new RegisterPaymentInput(loan2.Id, 300m, paymentMethodId, null, "P-2"), "token", CancellationToken.None);
 
-        // 1 payment with Transferencia (400)
-        await service.RegisterPaymentAsync(actor, new RegisterPaymentInput(loan.Id, 400m, transferMethodId, null, "P-3"), "token", CancellationToken.None);
+        // 1 payment with Transferencia (400) from third customer
+        await service.RegisterPaymentAsync(actor, new RegisterPaymentInput(loan3.Id, 400m, transferMethodId, null, "P-3"), "token", CancellationToken.None);
 
         var reconciliation = await service.GetDailyReconciliationAsync(actor, routeId, today, "token", CancellationToken.None);
 
@@ -256,6 +263,44 @@ public sealed class PaymentServiceTests
         Assert.Equal(adminActor.UserId, deletedEvidence.DeletedByUserId);
     }
 
+    [Fact]
+    public async Task RegisterPaymentAsync_fails_when_day_is_closed()
+    {
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var loan = CreateSampleLoan(1000m, 2);
+        loanRepository.Add(loan);
+
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        financeRepository.DayClosings.Add(Domain.RouteFinances.RouteDayClosing.CreateClosed(
+            tenantId, routeId, today, collectorId, "Cierre de prueba", DateTimeOffset.UtcNow));
+
+        var input = new RegisterPaymentInput(loan.Id, 100m, paymentMethodId, null, "P-CLOSED-DAY");
+        var result = await service.RegisterPaymentAsync(actor, input, "token", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal(PaymentErrorType.Conflict, result.ErrorType);
+        Assert.Contains("El día se encuentra cerrado", result.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task RegisterPaymentAsync_fails_when_customer_already_has_payment_today()
+    {
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var loan = CreateSampleLoan(1000m, 2);
+        loanRepository.Add(loan);
+
+        var input1 = new RegisterPaymentInput(loan.Id, 100m, paymentMethodId, null, "P-FIRST-COLLECTION");
+        var result1 = await service.RegisterPaymentAsync(actor, input1, "token", CancellationToken.None);
+        Assert.True(result1.Success);
+
+        var input2 = new RegisterPaymentInput(loan.Id, 50m, paymentMethodId, null, "P-SECOND-COLLECTION");
+        var result2 = await service.RegisterPaymentAsync(actor, input2, "token", CancellationToken.None);
+
+        Assert.False(result2.Success);
+        Assert.Equal(PaymentErrorType.Conflict, result2.ErrorType);
+        Assert.Contains("El cliente ya tiene un cobro registrado hoy", result2.ErrorMessage);
+    }
+
     private Loan CreateSampleLoan(decimal totalAmount, int installmentCount)
     {
         var now = DateTimeOffset.UtcNow;
@@ -326,6 +371,15 @@ public sealed class PaymentServiceTests
             return Task.FromResult(PaymentSaveOutcome.Success);
         }
 
+        public Task<Payment?> FindTodayPaymentAsync(Guid tenantId, Guid customerId, Guid routeId, DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(Payments.FirstOrDefault(p => p.TenantId == tenantId && p.CustomerId == customerId && p.RouteId == routeId && p.RegisteredAtUtc >= fromUtc && p.RegisteredAtUtc <= toUtc));
+
+        public Task DeletePaymentAsync(Payment payment, Loan loan, CancellationToken cancellationToken)
+        {
+            Payments.Remove(payment);
+            return Task.CompletedTask;
+        }
+
         public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 
         public Task<PaymentEvidence?> FindEvidenceAsync(Guid tenantId, Guid paymentId, Guid evidenceId, CancellationToken cancellationToken) =>
@@ -352,9 +406,18 @@ public sealed class PaymentServiceTests
         public Task<Loan?> FindAsync(Guid tenantId, Guid loanId, CancellationToken cancellationToken) =>
             Task.FromResult(loans.SingleOrDefault(l => l.TenantId == tenantId && l.Id == loanId));
 
+        public Task<Loan?> FindTodayLoanAsync(Guid tenantId, Guid customerId, Guid routeId, DateTimeOffset fromUtc, DateTimeOffset toUtc, CancellationToken cancellationToken) =>
+            Task.FromResult(loans.FirstOrDefault(l => l.TenantId == tenantId && l.CustomerId == customerId && l.RouteId == routeId && l.CreatedAtUtc >= fromUtc && l.CreatedAtUtc <= toUtc));
+
         public Task AddAsync(Loan loan, CancellationToken cancellationToken)
         {
             loans.Add(loan);
+            return Task.CompletedTask;
+        }
+
+        public Task DeleteLoanAsync(Loan loan, CancellationToken cancellationToken)
+        {
+            loans.Remove(loan);
             return Task.CompletedTask;
         }
 

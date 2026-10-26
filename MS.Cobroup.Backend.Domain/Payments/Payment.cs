@@ -139,4 +139,32 @@ public sealed class Payment
         ArgumentNullException.ThrowIfNull(evidence);
         evidences.Add(evidence);
     }
+
+    public void Update(
+        decimal newAmount,
+        Guid newPaymentMethodId,
+        string newPaymentMethodName,
+        string? newNotes,
+        IEnumerable<PaymentAllocation> newAllocations)
+    {
+        if (newAmount <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(newAmount), "Payment amount must be positive.");
+        }
+        ArgumentException.ThrowIfNullOrWhiteSpace(newPaymentMethodName);
+
+        var allocList = newAllocations.ToList();
+        var sumAllocated = allocList.Sum(a => a.AmountAllocated);
+        if (sumAllocated != newAmount)
+        {
+            throw new InvalidOperationException($"Sum of allocations ({sumAllocated}) must equal payment amount ({newAmount}) exactly.");
+        }
+
+        Amount = newAmount;
+        PaymentMethodId = newPaymentMethodId;
+        PaymentMethodName = newPaymentMethodName.Trim();
+        Notes = newNotes?.Trim();
+        allocations.Clear();
+        allocations.AddRange(allocList);
+    }
 }
