@@ -347,6 +347,17 @@
 - Commit autorizado: SÍ. Sin push ni despliegue; migración administrativa pendiente de aplicación.
 
 
+### 2026-10-24 — Balance y movimientos financieros por ruta
+
+- Solicitud: saldo inicial por ruta, afectación automática por préstamos/cobros y secciones de ingresos/inversiones y gastos en ambas aplicaciones.
+- Modelo: el balance se calcula sin límites como `saldo inicial - capital prestado + cobros + ingresos/inversiones - gastos`; usa los préstamos y pagos persistidos, por lo que no duplica efectos ni exige backfill de movimientos históricos.
+- Implementación: agregado `RouteFinancialEntry` con tipo Income/Investment/Expense, concepto, descripción, monto positivo, ruta/tenant, actor creador y actor de última edición. API bajo `/api/operations/v1/route-finances` para balance, listado, alta y modificación.
+- Autorización: alcance de ruta se resuelve siempre mediante el directorio administrativo. Collector y Supervisor solo pueden modificar durante el mismo día calendario de creación en la zona horaria configurada para el tenant; Admin puede modificar cualquier fecha. La fecha se asigna en servidor.
+- Persistencia: migración `AddRouteFinancialEntries` creada; modelo EF sin cambios pendientes. No se aplicó la migración ni se modificaron datos reales.
+- Verificación: build Release sin warnings/errores; Core 100/100. La suite Infrastructure conservó 118 aprobadas y 7 fallos preexistentes por esquema PostgreSQL local desactualizado (`customers.Identification`) y datos de prueba en conflicto, no relacionados con esta feature.
+- Git: cambios locales sin commit, push, merge, tag, PR ni despliegue.
+=======
+
 ### 2026-10-24 — Identificación obligatoria de clientes e intercambio visual de etiquetas
 
 - Solicitud expresa: invertir Alias/Nombre completo solo en interfaz y agregar identificación obligatoria, con 0 solo para clientes anteriores. Maestro 1.15.0, frameworks frontend 1.0 / C# 2.0 y JWT vigente.
@@ -367,3 +378,4 @@
 - El usuario pidió validar que el trabajo y su publicación correspondan a la rama feature, al observar cambios enviados a dev.
 - Rama activa verificada: feature/customer-identification. Eliminado el seguimiento incorrecto de origin/dev. Configuración local: push.default=current, push.autoSetupRemote=true y branch.autoSetupMerge=false; futuros pushes por defecto usarán el mismo nombre de rama y nuevas features no heredarán origin/dev automáticamente.
 - La rama remota feature/customer-identification no existía al verificar; no se hizo push. Los commits permanecen locales. En documentación se creó esta rama desde la fundación local existente, conservando los cinco commits previos sin reset ni merge.
+

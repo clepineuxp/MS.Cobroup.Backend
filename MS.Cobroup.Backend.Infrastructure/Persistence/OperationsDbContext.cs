@@ -3,6 +3,7 @@ using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.LoanExceptions;
 using MS.Cobroup.Backend.Domain.Loans;
 using MS.Cobroup.Backend.Domain.Payments;
+using MS.Cobroup.Backend.Domain.RouteFinances;
 
 namespace MS.Cobroup.Backend.Infrastructure.Persistence;
 
@@ -27,6 +28,8 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
     public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>();
 
     public DbSet<PaymentEvidence> PaymentEvidences => Set<PaymentEvidence>();
+
+    public DbSet<RouteFinancialEntry> RouteFinancialEntries => Set<RouteFinancialEntry>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -206,6 +209,21 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property(e => e.FileHashSha256).HasMaxLength(64).IsRequired();
             entity.Property(e => e.DeletionReason).HasMaxLength(500);
             entity.HasIndex(e => new { e.TenantId, e.PaymentId, e.IsDeleted });
+        });
+
+        modelBuilder.Entity<RouteFinancialEntry>(entity =>
+        {
+            entity.ToTable("route_financial_entries");
+            entity.HasKey(item => item.Id);
+            entity.Property(item => item.Type).HasConversion<string>().HasMaxLength(16).IsRequired();
+            entity.Property(item => item.Concept).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.Description).HasMaxLength(1000);
+            entity.Property(item => item.Amount).HasPrecision(18, 2).IsRequired();
+            entity.Property(item => item.CreatedByDisplayName).HasMaxLength(160).IsRequired();
+            entity.Property(item => item.UpdatedByDisplayName).HasMaxLength(160).IsRequired();
+            entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
+            entity.HasIndex(item => new { item.TenantId, item.RouteId, item.CreatedAtUtc });
+            entity.HasIndex(item => new { item.TenantId, item.RouteId, item.Type });
         });
     }
 }
