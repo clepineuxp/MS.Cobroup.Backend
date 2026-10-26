@@ -26,3 +26,8 @@ Autoridad de escritura operativa para clientes, préstamos, cuotas, pagos y evid
 ## Plantillas por rangos y cobro mensual — 2026-10-23
 
 Decisión vigente: [rangos, rutas y mensual](../../../cobroup.md/DECISION_PLANTILLAS_RANGOS_RUTAS.md). Monto/porcentaje mínimo y máximo inclusivos; plantillas publicadas asignadas explícitamente a la ruta del cliente, con validación del servidor. Mensual conserva el día de inicio por meses calendario. Migración administrativa preparada y pendiente de aplicación; no modifica condiciones de préstamos existentes.
+
+
+## Identificación del cliente — 2026-10-24
+
+Decisión vigente: [identificación obligatoria y etiquetas](../../../cobroup.md/DECISION_IDENTIFICACION_CLIENTE.md). Identification viaja en alta, edición y lectura; sin default para nuevos. Migración operativa aplicada en Dev: 7 clientes anteriores con 0, sin pendientes. El modal invierte solo etiquetas Alias/Nombre completo, sin mover datos. Evidencias y despliegue coordinado en AGENTS.md.

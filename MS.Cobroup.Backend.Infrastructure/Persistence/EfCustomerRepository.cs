@@ -34,7 +34,8 @@ public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICusto
         {
             var pattern = $"%{normalizedSearch}%";
             query = query.Where(customer =>
-                EF.Functions.ILike(customer.FirstNames, pattern)
+                EF.Functions.ILike(customer.Identification, pattern)
+                || EF.Functions.ILike(customer.FirstNames, pattern)
                 || EF.Functions.ILike(customer.LastNames, pattern)
                 || (customer.BusinessOrWorkName != null && EF.Functions.ILike(customer.BusinessOrWorkName, pattern))
                 || customer.Phones.Any(phone => EF.Functions.ILike(phone.Number, pattern)));
@@ -56,7 +57,8 @@ public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICusto
                 customer.Locations.Where(location => location.IsPrimary).Select(location => location.Latitude).Single(),
                 customer.Locations.Where(location => location.IsPrimary).Select(location => location.Longitude).Single(),
                 customer.Status,
-                customer.UpdatedAtUtc))
+                customer.UpdatedAtUtc,
+                customer.Identification))
             .ToArrayAsync(cancellationToken);
 
         return new CustomerSearchPage(items, page, pageSize, totalCount);

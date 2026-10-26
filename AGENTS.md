@@ -4,9 +4,9 @@
 
 - Producto: COBROUP
 - Rol: microservicio operativo; autoridad futura de Customer, Loan, Installment, Payment y PaymentEvidence.
-- Documento maestro: `../cobroup.md/COBROUP.md` 1.7.0 y `../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
+- Documento maestro: `../cobroup.md/COBROUP.md` 1.15.0 y `../cobroup.md/DECISION_AUTENTICACION_JWT.md`.
 - Estándar: `../cobroup.md/FRAMEWORK_DESARROLLO_CSHARP.md` 2.0.
-- Rama activa observada: `feature/solucion-hallazgos-iniciales`.
+- Rama activa: `feature/customer-identification`, creada desde `origin/dev`; árbol limpio al iniciar.
 - Prohibidos push, merge, tag y PR sin autorización.
 
 ## Estado actual
@@ -346,6 +346,7 @@
 - Validación registrada: 278 pruebas aprobadas y compilaciones correctas; sin nuevos cambios funcionales posteriores.
 - Commit autorizado: SÍ. Sin push ni despliegue; migración administrativa pendiente de aplicación.
 
+
 ### 2026-10-24 — Balance y movimientos financieros por ruta
 
 - Solicitud: saldo inicial por ruta, afectación automática por préstamos/cobros y secciones de ingresos/inversiones y gastos en ambas aplicaciones.
@@ -355,3 +356,26 @@
 - Persistencia: migración `AddRouteFinancialEntries` creada; modelo EF sin cambios pendientes. No se aplicó la migración ni se modificaron datos reales.
 - Verificación: build Release sin warnings/errores; Core 100/100. La suite Infrastructure conservó 118 aprobadas y 7 fallos preexistentes por esquema PostgreSQL local desactualizado (`customers.Identification`) y datos de prueba en conflicto, no relacionados con esta feature.
 - Git: cambios locales sin commit, push, merge, tag, PR ni despliegue.
+=======
+
+### 2026-10-24 — Identificación obligatoria de clientes e intercambio visual de etiquetas
+
+- Solicitud expresa: invertir Alias/Nombre completo solo en interfaz y agregar identificación obligatoria, con 0 solo para clientes anteriores. Maestro 1.15.0, frameworks frontend 1.0 / C# 2.0 y JWT vigente.
+- Dominio Customer, comandos, requests/respuestas, proyección y auditoría incorporan Identification requerida (string, 1–64 caracteres tras trim). Crea sin default, rechaza vacío y 0 nuevo; actualización permite retener 0 solo mientras el registro existente ya tiene 0. Conserva ceros iniciales, no introduce unicidad ni restricciones numéricas no solicitadas. Búsqueda incluye identificación y mantiene los filtros de tenant/ruta.
+- EF: columna operations.customers.Identification varchar(64) NOT NULL sin default persistente. Migración 20261024055522_AddCustomerIdentification añade columna anulable, rellena solo filas existentes con 0 y luego aplica NOT NULL. Snapshot/Designer y SQL idempotente incluidos. Factory de diseño alineada con el host: historial EF en operations.__EFMigrationsHistory; evita interpretar como pendientes migraciones ya aplicadas en ese esquema.
+- Aplicación: comprobación previa exigió base exacta dev_cobroup_operations y únicamente esta migración pendiente. Aplicada correctamente: 7 clientes anteriores con 0, 0 identificaciones vacías/nulas, default de columna ausente y 0 migraciones pendientes. Sin cambios a nombres/alias/préstamos de esos clientes. No se aplicó en QA/Prod ni se desplegó API.
+- Verificación: Core 105/105 e Infrastructure 127/127 completos; integración PostgreSQL valida la migración sobre tabla temporal y rollback (0 solo a anteriores, nueva fila sin ID rechazada, 001234 conservado). Tests existentes con DB inicialmente fallaron por columna ausente y pasan tras aplicar la migración. Modelo EF sin cambios pendientes; SQL idempotente regenerado con historial correcto. .NET SDK 10.0.402, net10.0, C#14 y EF 10.0.11; build sin errores.
+- Despliegue coordinado requerido: las versiones anteriores de API/formularios no envían identificación. Desplegar el backend operativo actualizado y ambos frontends juntos; la migración de Dev ya está aplicada. El servidor valida también las solicitudes directas y las reenviadas por BackendAdmin.
+- Git: sin commit, push, merge, PR ni despliegue solicitados para este alcance. Auditoría independiente no realizada. Decisión canónica: ../cobroup.md/DECISION_IDENTIFICACION_CLIENTE.md.
+
+### 2026-10-24 — Commits autorizados de identificación de clientes
+
+- Solicitud expresa del usuario: hacer commits del alcance de identificación obligatoria, intercambio visual de etiquetas, migración, pruebas y documentación asociadas.
+- Se conservan las verificaciones registradas y la migración aplicada en Dev a 7 clientes. Sin nuevos cambios funcionales. Commit autorizado: SÍ. Sin push, merge, tag, PR ni despliegue.
+
+### 2026-10-24 — Verificación de rama y destino de publicación
+
+- El usuario pidió validar que el trabajo y su publicación correspondan a la rama feature, al observar cambios enviados a dev.
+- Rama activa verificada: feature/customer-identification. Eliminado el seguimiento incorrecto de origin/dev. Configuración local: push.default=current, push.autoSetupRemote=true y branch.autoSetupMerge=false; futuros pushes por defecto usarán el mismo nombre de rama y nuevas features no heredarán origin/dev automáticamente.
+- La rama remota feature/customer-identification no existía al verificar; no se hizo push. Los commits permanecen locales. En documentación se creó esta rama desde la fundación local existente, conservando los cinco commits previos sin reset ni merge.
+

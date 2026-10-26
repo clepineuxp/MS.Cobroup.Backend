@@ -220,7 +220,7 @@ public sealed class LoanExceptionServiceTests
             [new("3001234567", true)],
             [new(4.60m, -74.08m, "Local", null, true, LocationSource.Manual)],
             Guid.NewGuid(),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow, "001234567");
 
     private sealed class InMemoryLoanExceptionRepository : ILoanExceptionRepository
     {

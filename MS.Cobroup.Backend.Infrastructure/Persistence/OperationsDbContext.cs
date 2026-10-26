@@ -39,6 +39,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
         {
             entity.ToTable("customers");
             entity.HasKey(customer => customer.Id);
+            entity.Property(customer => customer.Identification).HasMaxLength(64).IsRequired();
             entity.Property(customer => customer.FirstNames).HasMaxLength(120).IsRequired();
             entity.Property(customer => customer.LastNames).HasMaxLength(120).IsRequired();
             entity.Property(customer => customer.BusinessOrWorkName).HasMaxLength(160);

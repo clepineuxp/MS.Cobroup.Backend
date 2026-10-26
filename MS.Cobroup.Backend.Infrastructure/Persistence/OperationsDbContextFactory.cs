@@ -10,7 +10,7 @@ public sealed class OperationsDbContextFactory : IDesignTimeDbContextFactory<Ope
         var optionsBuilder = new DbContextOptionsBuilder<OperationsDbContext>();
         var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__OperationsDatabase")
             ?? "Host=localhost;Database=operations_design;Username=postgres;Password=postgres";
-        optionsBuilder.UseNpgsql(connectionString);
+        optionsBuilder.UseNpgsql(connectionString, postgres => postgres.MigrationsHistoryTable("__EFMigrationsHistory", "operations"));
         return new OperationsDbContext(optionsBuilder.Options);
     }
 }

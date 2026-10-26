@@ -259,7 +259,7 @@ public sealed class LoanServiceTests
             [new CustomerPhoneValue("555123456", true)],
             [new CustomerLocationValue(19.4326m, -99.1332m, "Tienda", "Av. Principal 123", true, LocationSource.Manual)],
             Guid.NewGuid(),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow, "001234567");
         customerRepository.Add(customer);
 
         var actor = new CustomerActor(Guid.NewGuid(), tenantId, UserRole.Collector);
@@ -421,7 +421,7 @@ public sealed class LoanServiceTests
             [new CustomerPhoneValue("555123456", true)],
             [new CustomerLocationValue(19.4326m, -99.1332m, "Tienda", "Av. Principal 123", true, LocationSource.Manual)],
             Guid.NewGuid(),
-            DateTimeOffset.UtcNow);
+            DateTimeOffset.UtcNow, "001234567");
     }
 
     private sealed class InMemoryLoanRepository : ILoanRepository
