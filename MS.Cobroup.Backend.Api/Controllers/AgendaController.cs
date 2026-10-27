@@ -8,6 +8,7 @@ namespace MS.Cobroup.Backend.Api.Controllers;
 [ApiController]
 [Route("api/operations/v1/agenda")]
 [Authorize(Policy = "tenant-user")]
+[MachineAuthorized]
 public sealed class AgendaController(AgendaService service) : ControllerBase
 {
     [HttpGet]

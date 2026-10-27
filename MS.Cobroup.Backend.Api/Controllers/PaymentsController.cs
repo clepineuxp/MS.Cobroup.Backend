@@ -8,6 +8,7 @@ namespace MS.Cobroup.Backend.Api.Controllers;
 [ApiController]
 [Route("api/operations/v1/payments")]
 [Authorize(Policy = "tenant-user")]
+[MachineAuthorized]
 public sealed class PaymentsController(
     PaymentService service,
     IOperationalPaymentMethodDirectory paymentMethodDirectory,

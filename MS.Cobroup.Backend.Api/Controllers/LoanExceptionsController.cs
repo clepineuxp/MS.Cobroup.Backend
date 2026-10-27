@@ -9,6 +9,7 @@ namespace MS.Cobroup.Backend.Api.Controllers;
 [ApiController]
 [Route("api/operations/v1/loan-exceptions")]
 [Authorize(Policy = "tenant-user")]
+[MachineAuthorized]
 public sealed class LoanExceptionsController(LoanExceptionService service) : ControllerBase
 {
     [HttpPost]
