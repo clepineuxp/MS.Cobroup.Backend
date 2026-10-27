@@ -29,9 +29,9 @@ public sealed record LoanTermsSnapshot(
             throw new ArgumentOutOfRangeException(nameof(principalAmount), "Principal amount must be positive.");
         }
 
-        if (interestRate <= 0)
+        if (interestRate < 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(interestRate), "Interest rate must be positive.");
+            throw new ArgumentOutOfRangeException(nameof(interestRate), "Interest rate cannot be negative.");
         }
 
         if (interestAmount < 0)
