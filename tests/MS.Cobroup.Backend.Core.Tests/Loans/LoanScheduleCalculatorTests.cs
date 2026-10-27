@@ -62,6 +62,32 @@ public sealed class LoanScheduleCalculatorTests
     }
 
     [Fact]
+    public void Calculate_zero_percent_interest_schedule_has_zero_interest_and_correct_installments()
+    {
+        var principal = 1000m;
+        var interestRate = 0m;
+        var installmentCount = 4;
+        var startDate = new DateOnly(2026, 11, 1);
+
+        var schedule = LoanScheduleCalculator.Calculate(
+            principal,
+            interestRate,
+            PaymentFrequency.Daily,
+            null,
+            installmentCount,
+            startDate);
+
+        Assert.Equal(principal, schedule.PrincipalAmount);
+        Assert.Equal(0m, schedule.InterestRate);
+        Assert.Equal(0m, schedule.InterestAmount);
+        Assert.Equal(1000m, schedule.TotalAmount);
+        Assert.Equal(4, schedule.Installments.Count);
+        Assert.Equal(250m, schedule.Installments[0].ExpectedAmount);
+        Assert.Equal(250m, schedule.Installments[3].ExpectedAmount);
+        Assert.Equal(1000m, schedule.Installments.Sum(i => i.ExpectedAmount));
+    }
+
+    [Fact]
     public void Calculate_weekly_schedule_advances_by_seven_days()
     {
         var principal = 500m;
