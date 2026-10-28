@@ -10,6 +10,7 @@ namespace MS.Cobroup.Backend.Api.Controllers;
 [ApiController]
 [Route("api/operations/v1/route-finances")]
 [Authorize(Policy = "tenant-user")]
+[MachineAuthorized]
 public sealed class RouteFinancesController(RouteFinanceService service) : ControllerBase
 {
     [HttpGet("{routeId:guid}/balance")]

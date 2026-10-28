@@ -23,6 +23,7 @@ using MS.Cobroup.Backend.Infrastructure.LoanTemplates;
 using MS.Cobroup.Backend.Infrastructure.Payments;
 using MS.Cobroup.Backend.Infrastructure.Persistence;
 using MS.Cobroup.Backend.Infrastructure.Routes;
+using MS.Cobroup.Backend.Infrastructure.MachineAuth;
 using MS.Cobroup.Backend.Api.Security;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -105,6 +106,13 @@ builder.Services.AddHttpClient<IAdministrativeRouteDirectory, AdminRouteDirector
         ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
     client.BaseAddress = new Uri(baseUrl, UriKind.Absolute);
     client.Timeout = TimeSpan.FromSeconds(10);
+}).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
+
+builder.Services.AddHttpClient<IMachineAuthorizationDirectory, AdminMachineAuthorizationDirectoryClient>((services, client) =>
+{
+    var configuration = services.GetRequiredService<IConfiguration>();
+    var baseUrl = configuration["AdministrativeApi:BaseUrl"] ?? throw new InvalidOperationException("AdministrativeApi:BaseUrl is required.");
+    client.BaseAddress = new Uri(baseUrl, UriKind.Absolute); client.Timeout = TimeSpan.FromSeconds(5);
 }).AddHttpMessageHandler<CorrelationIdDelegatingHandler>();
 
 builder.Services.AddHttpClient<IAdministrativeLoanTemplateDirectory, AdminLoanTemplateDirectoryClient>((services, client) =>

@@ -9,6 +9,7 @@ namespace MS.Cobroup.Backend.Api.Controllers;
 [ApiController]
 [Route("api/operations/v1/customers")]
 [Authorize(Policy = "tenant-user")]
+[MachineAuthorized]
 public sealed class CustomersController(CustomerService customers) : ControllerBase
 {
     [HttpGet]
