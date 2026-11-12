@@ -7,6 +7,8 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence;
 
 public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICustomerRepository
 {
+    public Task SaveChangesAsync(CancellationToken cancellationToken) =>
+        dbContext.SaveChangesAsync(cancellationToken);
     public async Task<CustomerSearchPage> SearchAsync(
         Guid tenantId,
         IReadOnlyCollection<Guid> accessibleRouteIds,

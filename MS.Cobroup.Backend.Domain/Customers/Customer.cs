@@ -69,9 +69,51 @@ public sealed class Customer
 
     public DateTimeOffset UpdatedAtUtc { get; private set; }
 
+    public string? EvidenceFileName { get; private set; }
+
+    public string? EvidenceContentType { get; private set; }
+
+    public long? EvidenceByteSize { get; private set; }
+
+    public string? EvidenceStorageKey { get; private set; }
+
+    public string? EvidenceFileHashSha256 { get; private set; }
+
+    public Guid? EvidenceUploadedByUserId { get; private set; }
+
+    public DateTimeOffset? EvidenceUploadedAtUtc { get; private set; }
+
     public IReadOnlyCollection<CustomerPhone> Phones => phones.AsReadOnly();
 
     public IReadOnlyCollection<CustomerLocation> Locations => locations.AsReadOnly();
+
+    public void ReplaceEvidence(
+        string fileName,
+        string contentType,
+        long byteSize,
+        string storageKey,
+        string fileHashSha256,
+        Guid uploadedByUserId,
+        DateTimeOffset uploadedAtUtc)
+    {
+        EvidenceFileName = Require(fileName, nameof(fileName), 255);
+        EvidenceContentType = Require(contentType, nameof(contentType), 100);
+        if (byteSize <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(byteSize));
+        }
+
+        EvidenceByteSize = byteSize;
+        EvidenceStorageKey = Require(storageKey, nameof(storageKey), 500);
+        EvidenceFileHashSha256 = Require(fileHashSha256, nameof(fileHashSha256), 64);
+        if (uploadedByUserId == Guid.Empty)
+        {
+            throw new ArgumentException("Evidence uploader is required.", nameof(uploadedByUserId));
+        }
+
+        EvidenceUploadedByUserId = uploadedByUserId;
+        EvidenceUploadedAtUtc = uploadedAtUtc;
+    }
 
     public static Customer Create(
         Guid tenantId,

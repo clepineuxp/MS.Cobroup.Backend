@@ -40,6 +40,31 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<Guid>("CreatedByUserId")
                         .HasColumnType("uuid");
 
+                    b.Property<long?>("EvidenceByteSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("EvidenceContentType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("EvidenceFileHashSha256")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("EvidenceFileName")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("EvidenceStorageKey")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset?>("EvidenceUploadedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("EvidenceUploadedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("FirstNames")
                         .IsRequired()
                         .HasMaxLength(120)

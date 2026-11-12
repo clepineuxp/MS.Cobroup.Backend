@@ -388,3 +388,14 @@
 - Validación: build Release sin errores; Core 114/114 e Infrastructure aislada 119/119. Pruebas nuevas de bloqueo del día cerrado, reapertura con permisos y aislamiento por ruta. Modelo EF sin diferencias pendientes. Arranque HTTP y /health/live 200; auditoría sin token 401.
 - Limitación: PostgreSQL dev_cobroup_operations en la conexión configurada agota el tiempo de espera incluso al consultar historial EF; migraciones no aplicadas y flujo autenticado contra BD real pendiente. Conexión TCP abre, pero sesión PostgreSQL no completa. No se alteraron datos reales.
 - Git: cambios existentes conservados en feature/unique-transaction. Sin commit, push ni despliegue.
+
+### 2026-11-11 — Evidencia de cliente y estabilización de pruebas de fecha
+
+- Solicitud: soporte para carga y consulta de evidencia fotográfica/documental de clientes y commits autorizados por el usuario.
+- Dominio y Contratos: `Customer` incorpora `ReplaceEvidence` y campos de persistencia de evidencia (`EvidenceFileName`, `EvidenceContentType`, `EvidenceByteSize`, `EvidenceStorageKey`, `EvidenceFileHashSha256`, `EvidenceUploadedByUserId`, `EvidenceUploadedAtUtc`). Contratos `UploadCustomerEvidenceCommand` y respuesta tipada en `CustomerContracts`.
+- Servicio y API: `CustomerService` gestiona validación estructural y almacenamiento seguro a través de `IFileStorageService`. Endpoints operativos en `CustomersController` para carga y descarga de evidencia (`/api/operations/v1/customers/{customerId}/evidence`).
+- Persistencia: migración EF Core `20261028174155_AddCustomerEvidence` y snapshot de `OperationsDbContext` actualizados.
+- Pruebas y estabilización: pruebas de `LoanServiceTests` y `PaymentServiceTests` estabilizadas para evaluación de cierre de día calculando la fecha actual en la zona horaria del tenant (`America/Bogota`) en lugar de UTC desfasado.
+- Verificación: 115/115 pruebas pasando en `MS.Cobroup.Backend.Core.Tests`. Build Release 0 errores, 0 advertencias.
+- Git: commit autorizado por el usuario ("hacer commitds de frontend y backend"); sin push, merge, tag, PR ni despliegue.
+

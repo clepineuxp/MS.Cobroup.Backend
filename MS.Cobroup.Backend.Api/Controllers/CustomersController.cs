@@ -130,6 +130,59 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
         return ToActionResult(result);
     }
 
+    [HttpPost("{customerId:guid}/evidence/upload")]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadEvidence(
+        Guid customerId,
+        IFormFile file,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new { message = "Debe seleccionar una imagen." });
+        }
+
+        await using var stream = file.OpenReadStream();
+        var result = await customers.UploadEvidenceAsync(
+            actor,
+            CustomerActorReader.ReadBearerToken(Request),
+            customerId,
+            file.FileName,
+            file.ContentType,
+            stream,
+            cancellationToken);
+        return ToActionResult(result);
+    }
+
+    [HttpGet("{customerId:guid}/evidence")]
+    public async Task<IActionResult> GetEvidence(Guid customerId, CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var result = await customers.GetEvidenceAsync(
+            new GetCustomerQuery(actor, CustomerActorReader.ReadBearerToken(Request), customerId),
+            cancellationToken);
+        return result.Outcome switch
+        {
+            CustomerOutcome.Success => File(result.Content!, result.ContentType!, result.FileName),
+            CustomerOutcome.NotFound => NotFound(),
+            CustomerOutcome.Unauthorized => Unauthorized(),
+            CustomerOutcome.Forbidden => Forbid(),
+            CustomerOutcome.Unavailable => Problem(
+                "The route authorization directory is temporarily unavailable.",
+                statusCode: StatusCodes.Status503ServiceUnavailable),
+            _ => Problem("Unexpected customer evidence result.")
+        };
+    }
+
     private IActionResult ToActionResult(CustomerResult result) => result.Outcome switch
     {
         CustomerOutcome.Success => Ok(result.Customer),

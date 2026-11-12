@@ -425,7 +425,8 @@ public sealed class LoanServiceTests
         var customer = CreateCustomer(tenantId, routeId);
         customerRepository.Add(customer);
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var tz = TimeZoneInfo.FindSystemTimeZoneById("America/Bogota");
+        var today = DateOnly.FromDateTime(TimeZoneInfo.ConvertTimeFromUtc(DateTime.UtcNow, tz));
         financeRepository.DayClosings.Add(Domain.RouteFinances.RouteDayClosing.CreateClosed(
             tenantId, routeId, today, collectorId, "Cierre de prueba", DateTimeOffset.UtcNow));
 
