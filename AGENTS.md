@@ -417,5 +417,15 @@
 - Pruebas y verificación: 119/119 pruebas unitarias aprobadas en `MS.Cobroup.Backend.Core.Tests` cubriendo estado `WillNotPayToday`, prioridad de pagos del día, registro y cancelación de no pagos. Compilación exitosa en todos los proyectos.
 - Git: commit local en rama `feature/frontend-adjustment-filters`; sin push, merge, tag, PR ni despliegue.
 
+### 2026-11-12 — Aplicación de migraciones en base de datos de operaciones
+
+- Solicitud expresa del usuario: "aplicar migraciones".
+- Generación de migración y snapshot: se instaló la herramienta CLI `dotnet-ef` v11.0.0; se regeneró formalmente la migración EF Core `20261112143425_AddAgendaNonPaymentRecords` actualizando `OperationsDbContextModelSnapshot.cs` y su clase diseñador correspondiente, validando con `dotnet ef migrations has-pending-model-changes` (0 cambios pendientes).
+- Ejecución en PostgreSQL: ejecutado `dotnet ef database update` apuntando a `dev_cobroup_operations` en PostgreSQL remoto (`Host=13.140.36.249:5432`).
+- Resultado: migración `20261112143425_AddAgendaNonPaymentRecords` aplicada exitosamente con bloqueo exclusivo. La verificación posterior con `dotnet ef migrations list` confirmó las 12 migraciones aplicadas en la base de datos sin pendientes.
+- Validación: 119/119 pruebas unitarias pasando en `MS.Cobroup.Backend.Core.Tests`.
+- Git: commit local en rama `feature/frontend-adjustment-filters`; sin push, merge, tag, PR ni despliegue.
+
+
 
 

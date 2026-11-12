@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 
 #nullable disable
@@ -11,25 +11,6 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.CreateTable(
-                name: "agenda_non_payment_reasons",
-                schema: "operations",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    TenantId = table.Column<Guid>(type: "uuid", nullable: false),
-                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
-                    Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
-                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
-                    DisplayOrder = table.Column<int>(type: "integer", nullable: false),
-                    CreatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
-                    UpdatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_agenda_non_payment_reasons", x => x.Id);
-                });
-
             migrationBuilder.CreateTable(
                 name: "agenda_customer_non_payment_records",
                 schema: "operations",
@@ -52,11 +33,24 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     table.PrimaryKey("PK_agenda_customer_non_payment_records", x => x.Id);
                 });
 
-            migrationBuilder.CreateIndex(
-                name: "IX_agenda_non_payment_reasons_TenantId_IsActive_DisplayOrder",
+            migrationBuilder.CreateTable(
+                name: "agenda_non_payment_reasons",
                 schema: "operations",
-                table: "agenda_non_payment_reasons",
-                columns: new[] { "TenantId", "IsActive", "DisplayOrder" });
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    TenantId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    Description = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: true),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    DisplayOrder = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false),
+                    UpdatedAtUtc = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_agenda_non_payment_reasons", x => x.Id);
+                });
 
             migrationBuilder.CreateIndex(
                 name: "IX_agenda_customer_non_payment_records_TenantId_CustomerId_Bus~",
@@ -69,6 +63,12 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                 schema: "operations",
                 table: "agenda_customer_non_payment_records",
                 columns: new[] { "TenantId", "RouteId", "BusinessDate" });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_agenda_non_payment_reasons_TenantId_IsActive_DisplayOrder",
+                schema: "operations",
+                table: "agenda_non_payment_reasons",
+                columns: new[] { "TenantId", "IsActive", "DisplayOrder" });
         }
 
         /// <inheritdoc />
@@ -84,4 +84,3 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
         }
     }
 }
-
