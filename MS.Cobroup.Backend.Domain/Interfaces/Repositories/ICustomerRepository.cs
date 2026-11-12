@@ -28,6 +28,8 @@ public interface ICustomerRepository
         CustomerStatus previousStatus,
         int? maxActiveCustomers,
         CancellationToken cancellationToken);
+
+    Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
 }
 
 public enum CustomerSaveOutcome

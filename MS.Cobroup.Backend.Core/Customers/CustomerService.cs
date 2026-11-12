@@ -3,12 +3,14 @@ using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Authorization;
 using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
+using MS.Cobroup.Backend.Domain.Interfaces.Services;
 
 namespace MS.Cobroup.Backend.Core.Customers;
 
 public sealed class CustomerService(
     ICustomerRepository repository,
-    IAdministrativeRouteDirectory routeDirectory)
+    IAdministrativeRouteDirectory routeDirectory,
+    IFileStorageService? fileStorageService = null)
 {
     public async Task<CustomerSearchResult> SearchAsync(
         SearchCustomersQuery query,
@@ -212,6 +214,118 @@ public sealed class CustomerService(
         };
     }
 
+    public async Task<CustomerResult> UploadEvidenceAsync(
+        CustomerActor actor,
+        string accessToken,
+        Guid customerId,
+        string fileName,
+        string contentType,
+        Stream content,
+        CancellationToken cancellationToken)
+    {
+        if (fileStorageService is null)
+        {
+            return CustomerResult.Unavailable();
+        }
+
+        var routes = await GetRoutesAsync(accessToken, cancellationToken);
+        if (routes.Outcome is not RouteDirectoryOutcome.Success)
+        {
+            return MapFailure(routes.Outcome);
+        }
+
+        var customer = await repository.FindAsync(actor.TenantId, customerId, cancellationToken);
+        if (customer is null)
+        {
+            return CustomerResult.NotFound();
+        }
+
+        if (routes.Routes.All(route => route.Id != customer.RouteId))
+        {
+            return CustomerResult.Forbidden();
+        }
+
+        var previousStorageKey = customer.EvidenceStorageKey;
+        StoredFileResult stored;
+        try
+        {
+            stored = await fileStorageService.StoreEvidenceAsync(
+                actor.TenantId,
+                customerId,
+                Path.GetFileName(fileName),
+                contentType,
+                content,
+                cancellationToken);
+            customer.ReplaceEvidence(
+                Path.GetFileName(fileName),
+                stored.ContentType,
+                stored.ByteSize,
+                stored.StorageKey,
+                stored.FileHashSha256,
+                actor.UserId,
+                DateTimeOffset.UtcNow);
+            await repository.SaveChangesAsync(cancellationToken);
+        }
+        catch (ArgumentException exception)
+        {
+            return CustomerResult.Invalid(exception.Message);
+        }
+        catch (InvalidOperationException exception)
+        {
+            return CustomerResult.Invalid(exception.Message);
+        }
+
+        if (!string.IsNullOrWhiteSpace(previousStorageKey) &&
+            !string.Equals(previousStorageKey, stored.StorageKey, StringComparison.Ordinal))
+        {
+            await fileStorageService.DeleteEvidenceAsync(actor.TenantId, previousStorageKey, cancellationToken);
+        }
+
+        return CustomerResult.Success(ToDetails(customer));
+    }
+
+    public async Task<CustomerEvidenceResult> GetEvidenceAsync(
+        GetCustomerQuery query,
+        CancellationToken cancellationToken)
+    {
+        if (fileStorageService is null)
+        {
+            return CustomerEvidenceResult.Unavailable();
+        }
+
+        var routes = await GetRoutesAsync(query.AccessToken, cancellationToken);
+        if (routes.Outcome is not RouteDirectoryOutcome.Success)
+        {
+            return routes.Outcome switch
+            {
+                RouteDirectoryOutcome.Unauthorized => CustomerEvidenceResult.Unauthorized(),
+                RouteDirectoryOutcome.Forbidden => CustomerEvidenceResult.Forbidden(),
+                _ => CustomerEvidenceResult.Unavailable()
+            };
+        }
+
+        var customer = await repository.FindAsync(query.Actor.TenantId, query.CustomerId, cancellationToken);
+        if (customer is null || routes.Routes.All(route => route.Id != customer.RouteId))
+        {
+            return CustomerEvidenceResult.NotFound();
+        }
+
+        if (string.IsNullOrWhiteSpace(customer.EvidenceStorageKey) ||
+            string.IsNullOrWhiteSpace(customer.EvidenceFileName) ||
+            string.IsNullOrWhiteSpace(customer.EvidenceContentType))
+        {
+            return CustomerEvidenceResult.NotFound();
+        }
+
+        var stream = await fileStorageService.ReadEvidenceAsync(
+            query.Actor.TenantId,
+            customer.EvidenceStorageKey,
+            cancellationToken);
+        return stream is null
+            ? CustomerEvidenceResult.NotFound()
+            : CustomerEvidenceResult.Success(stream, customer.EvidenceFileName, customer.EvidenceContentType);
+    }
+
     private Task<RouteDirectoryResult> GetRoutesAsync(string accessToken, CancellationToken cancellationToken) =>
         string.IsNullOrWhiteSpace(accessToken)
             ? Task.FromResult(RouteDirectoryResult.Unauthorized())
@@ -256,7 +370,15 @@ public sealed class CustomerService(
             .ToArray(),
         customer.CreatedAtUtc,
         customer.UpdatedAtUtc,
-        customer.Identification);
+        customer.Identification,
+        customer.EvidenceFileName is null || customer.EvidenceContentType is null ||
+        customer.EvidenceByteSize is null || customer.EvidenceUploadedAtUtc is null
+            ? null
+            : new CustomerEvidenceDetails(
+                customer.EvidenceFileName,
+                customer.EvidenceContentType,
+                customer.EvidenceByteSize.Value,
+                customer.EvidenceUploadedAtUtc.Value));
 
     private static string SerializeAuditDetails(CustomerAuditSnapshot? before, Customer after) =>
         JsonSerializer.Serialize(new CustomerAuditChange(before, CustomerAuditSnapshot.From(after)));

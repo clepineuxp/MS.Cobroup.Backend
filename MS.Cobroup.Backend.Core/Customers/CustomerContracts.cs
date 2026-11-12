@@ -66,6 +66,12 @@ public sealed record CustomerLocationDetails(
     bool IsPrimary,
     LocationSource Source);
 
+public sealed record CustomerEvidenceDetails(
+    string FileName,
+    string ContentType,
+    long ByteSize,
+    DateTimeOffset UploadedAtUtc);
+
 public sealed record CustomerDetails(
     Guid Id,
     Guid RouteId,
@@ -78,7 +84,8 @@ public sealed record CustomerDetails(
     IReadOnlyCollection<CustomerLocationDetails> Locations,
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
-    string Identification);
+    string Identification,
+    CustomerEvidenceDetails? Evidence);
 
 public enum CustomerOutcome
 {
@@ -116,6 +123,27 @@ public sealed record CustomerResult(
         new(CustomerOutcome.CapacityReached, null, "The route has reached its active customer capacity.");
 
     public static CustomerResult Unavailable() => new(CustomerOutcome.Unavailable, null, null);
+}
+
+public sealed record CustomerEvidenceResult(
+    CustomerOutcome Outcome,
+    Stream? Content,
+    string? FileName,
+    string? ContentType,
+    string? Error)
+{
+    public static CustomerEvidenceResult Success(Stream content, string fileName, string contentType) =>
+        new(CustomerOutcome.Success, content, fileName, contentType, null);
+
+    public static CustomerEvidenceResult Invalid(string error) => new(CustomerOutcome.Invalid, null, null, null, error);
+
+    public static CustomerEvidenceResult NotFound() => new(CustomerOutcome.NotFound, null, null, null, null);
+
+    public static CustomerEvidenceResult Unauthorized() => new(CustomerOutcome.Unauthorized, null, null, null, null);
+
+    public static CustomerEvidenceResult Forbidden() => new(CustomerOutcome.Forbidden, null, null, null, null);
+
+    public static CustomerEvidenceResult Unavailable() => new(CustomerOutcome.Unavailable, null, null, null, null);
 }
 
 public sealed record CustomerSearchResult(

@@ -44,6 +44,10 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.ToTable("customers");
             entity.HasKey(customer => customer.Id);
             entity.Property(customer => customer.Identification).HasMaxLength(64).IsRequired();
+            entity.Property(customer => customer.EvidenceFileName).HasMaxLength(255);
+            entity.Property(customer => customer.EvidenceContentType).HasMaxLength(100);
+            entity.Property(customer => customer.EvidenceStorageKey).HasMaxLength(500);
+            entity.Property(customer => customer.EvidenceFileHashSha256).HasMaxLength(64);
             entity.Property(customer => customer.FirstNames).HasMaxLength(120).IsRequired();
             entity.Property(customer => customer.LastNames).HasMaxLength(120).IsRequired();
             entity.Property(customer => customer.BusinessOrWorkName).HasMaxLength(160);
