@@ -55,7 +55,18 @@ public sealed record DayClosingStatusDetails(
     string? ClosedByDisplayName,
     DateTimeOffset? ReopenedAtUtc,
     string? ReopenedByDisplayName,
-    bool CanReopen);
+    bool CanReopen,
+    DateTimeOffset? OpenedAtUtc = null,
+    string? OpenedByDisplayName = null,
+    bool IsCutoffExceeded = false,
+    DateTimeOffset? CutoffUtc = null,
+    string? BoxName = null);
+
+public sealed record CashBoxValidationResult(bool IsAllowed, string? ErrorMessage = null, RouteDayClosing? Box = null)
+{
+    public static CashBoxValidationResult Allowed(RouteDayClosing box) => new(true, Box: box);
+    public static CashBoxValidationResult Blocked(string message) => new(false, ErrorMessage: message);
+}
 
 public sealed record FinancialMovementAuditLogDetails(
     Guid Id,

@@ -6,12 +6,16 @@ namespace MS.Cobroup.Backend.Core.Tests.TestDoubles;
 public sealed class InMemoryRouteFinanceRepository : IRouteFinanceRepository
 {
     public RouteBalanceTotals Totals { get; set; } = new(0m, 0m, 0m, 0m);
+    public RouteBalanceTotals? TotalsSince { get; set; }
     public List<RouteFinancialEntry> Entries { get; } = [];
     public List<RouteDayClosing> DayClosings { get; } = [];
     public List<FinancialMovementAuditLog> AuditLogs { get; } = [];
 
     public Task<RouteBalanceTotals> GetTotalsAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken) =>
         Task.FromResult(Totals);
+
+    public Task<RouteBalanceTotals> GetTotalsSinceAsync(Guid tenantId, Guid routeId, DateTimeOffset sinceUtc, CancellationToken cancellationToken) =>
+        Task.FromResult(TotalsSince ?? new RouteBalanceTotals(0m, 0m, 0m, 0m));
 
     public Task<IReadOnlyCollection<RouteFinancialEntry>> ListEntriesAsync(
         Guid tenantId,
@@ -42,6 +46,18 @@ public sealed class InMemoryRouteFinanceRepository : IRouteFinanceRepository
 
     public Task<RouteDayClosing?> FindDayClosingAsync(Guid tenantId, Guid routeId, DateOnly businessDate, CancellationToken cancellationToken) =>
         Task.FromResult(DayClosings.SingleOrDefault(c => c.TenantId == tenantId && c.RouteId == routeId && c.BusinessDate == businessDate));
+
+    public Task<RouteDayClosing?> FindActiveOpenClosingAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken) =>
+        Task.FromResult(DayClosings
+            .Where(c => c.TenantId == tenantId && c.RouteId == routeId && !c.IsClosed)
+            .OrderByDescending(c => c.BusinessDate)
+            .FirstOrDefault());
+
+    public Task<RouteDayClosing?> FindLatestDayClosingAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken) =>
+        Task.FromResult(DayClosings
+            .Where(c => c.TenantId == tenantId && c.RouteId == routeId)
+            .OrderByDescending(c => c.BusinessDate)
+            .FirstOrDefault());
 
     public Task SaveDayClosingAsync(RouteDayClosing closing, CancellationToken cancellationToken)
     {

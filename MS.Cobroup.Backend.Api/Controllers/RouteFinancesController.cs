@@ -76,6 +76,16 @@ public sealed class RouteFinancesController(RouteFinanceService service) : Contr
         return Map(await service.ReopenDayAsync(command, routeId, cancellationToken));
     }
 
+    [HttpPost("{routeId:guid}/reopen-box")]
+    public async Task<IActionResult> ReopenBox(
+        Guid routeId,
+        [FromQuery] DateOnly? businessDate,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.ReopenBoxAsync(command, routeId, businessDate, cancellationToken));
+    }
+
     [HttpGet("{routeId:guid}/closing-status")]
     public async Task<IActionResult> GetDayClosingStatus(
         Guid routeId,

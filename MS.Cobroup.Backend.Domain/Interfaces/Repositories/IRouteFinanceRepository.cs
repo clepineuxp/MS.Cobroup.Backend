@@ -6,6 +6,8 @@ public interface IRouteFinanceRepository
 {
     Task<RouteBalanceTotals> GetTotalsAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken);
 
+    Task<RouteBalanceTotals> GetTotalsSinceAsync(Guid tenantId, Guid routeId, DateTimeOffset sinceUtc, CancellationToken cancellationToken);
+
     Task<IReadOnlyCollection<RouteFinancialEntry>> ListEntriesAsync(
         Guid tenantId,
         Guid routeId,
@@ -19,6 +21,10 @@ public interface IRouteFinanceRepository
     Task RemoveEntryAsync(RouteFinancialEntry entry, CancellationToken cancellationToken);
 
     Task<RouteDayClosing?> FindDayClosingAsync(Guid tenantId, Guid routeId, DateOnly businessDate, CancellationToken cancellationToken);
+
+    Task<RouteDayClosing?> FindActiveOpenClosingAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken);
+
+    Task<RouteDayClosing?> FindLatestDayClosingAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken);
 
     Task SaveDayClosingAsync(RouteDayClosing closing, CancellationToken cancellationToken);
 

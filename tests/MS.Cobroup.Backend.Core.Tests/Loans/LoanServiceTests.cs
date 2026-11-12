@@ -412,7 +412,7 @@ public sealed class LoanServiceTests
     }
 
     [Fact]
-    public async Task OriginateAsync_fails_when_day_is_closed()
+    public async Task OriginateAsync_opens_box_when_day_is_closed()
     {
         var tenantId = Guid.NewGuid();
         var routeId = Guid.NewGuid();
@@ -436,8 +436,9 @@ public sealed class LoanServiceTests
 
         var result = await service.OriginateAsync(new OriginateLoanCommand(actor, "token", input), CancellationToken.None);
 
-        Assert.Equal(LoanOutcome.Conflict, result.Outcome);
-        Assert.Contains("El día se encuentra cerrado", result.ErrorMessage);
+        Assert.Equal(LoanOutcome.Created, result.Outcome);
+        var closing = Assert.Single(financeRepository.DayClosings);
+        Assert.False(closing.IsClosed);
     }
 
     [Fact]

@@ -31,6 +31,35 @@ public sealed class EfRouteFinanceRepository(OperationsDbContext dbContext) : IR
         return new RouteBalanceTotals(loans, payments, incomeInvestments, expenses);
     }
 
+    public async Task<RouteBalanceTotals> GetTotalsSinceAsync(
+        Guid tenantId,
+        Guid routeId,
+        DateTimeOffset sinceUtc,
+        CancellationToken cancellationToken)
+    {
+        var loans = await dbContext.Loans
+            .AsNoTracking()
+            .Where(item => item.TenantId == tenantId && item.RouteId == routeId && item.CreatedAtUtc >= sinceUtc)
+            .SumAsync(item => (decimal?)item.Terms.PrincipalAmount, cancellationToken) ?? 0m;
+        var payments = await dbContext.Payments
+            .AsNoTracking()
+            .Where(item => item.TenantId == tenantId && item.RouteId == routeId && item.RegisteredAtUtc >= sinceUtc)
+            .SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0m;
+        var incomeInvestments = await dbContext.RouteFinancialEntries
+            .AsNoTracking()
+            .Where(item => item.TenantId == tenantId && item.RouteId == routeId
+                && item.CreatedAtUtc >= sinceUtc
+                && (item.Type == RouteFinancialEntryType.Income || item.Type == RouteFinancialEntryType.Investment))
+            .SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0m;
+        var expenses = await dbContext.RouteFinancialEntries
+            .AsNoTracking()
+            .Where(item => item.TenantId == tenantId && item.RouteId == routeId
+                && item.CreatedAtUtc >= sinceUtc
+                && item.Type == RouteFinancialEntryType.Expense)
+            .SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0m;
+        return new RouteBalanceTotals(loans, payments, incomeInvestments, expenses);
+    }
+
     public async Task<IReadOnlyCollection<RouteFinancialEntry>> ListEntriesAsync(
         Guid tenantId,
         Guid routeId,
@@ -68,6 +97,24 @@ public sealed class EfRouteFinanceRepository(OperationsDbContext dbContext) : IR
         dbContext.RouteDayClosings.SingleOrDefaultAsync(
             item => item.TenantId == tenantId && item.RouteId == routeId && item.BusinessDate == businessDate,
             cancellationToken);
+
+    public Task<RouteDayClosing?> FindActiveOpenClosingAsync(
+        Guid tenantId,
+        Guid routeId,
+        CancellationToken cancellationToken) =>
+        dbContext.RouteDayClosings
+            .Where(item => item.TenantId == tenantId && item.RouteId == routeId && !item.IsClosed)
+            .OrderByDescending(item => item.BusinessDate)
+            .FirstOrDefaultAsync(cancellationToken);
+
+    public Task<RouteDayClosing?> FindLatestDayClosingAsync(
+        Guid tenantId,
+        Guid routeId,
+        CancellationToken cancellationToken) =>
+        dbContext.RouteDayClosings
+            .Where(item => item.TenantId == tenantId && item.RouteId == routeId)
+            .OrderByDescending(item => item.BusinessDate)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task SaveDayClosingAsync(RouteDayClosing closing, CancellationToken cancellationToken)
     {

@@ -245,6 +245,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.HasKey(item => item.Id);
             entity.Property(item => item.ClosedByDisplayName).HasMaxLength(160);
             entity.Property(item => item.ReopenedByDisplayName).HasMaxLength(160);
+            entity.Property(item => item.OpenedByDisplayName).HasMaxLength(160);
             entity.HasIndex(item => new { item.TenantId, item.RouteId, item.BusinessDate }).IsUnique();
         });
 

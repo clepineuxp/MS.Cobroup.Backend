@@ -15,7 +15,9 @@ public sealed record AccessibleRoute(
     int? MaxActiveCustomers,
     int? MaxActiveLoans,
     decimal InitialBalance = 0m,
-    string TimeZoneId = "America/Bogota");
+    string TimeZoneId = "America/Bogota",
+    TimeOnly? DailyClosingTimeUtc = null,
+    bool EnforceDailyClosingSchedule = false);
 
 public enum RouteDirectoryOutcome
 {

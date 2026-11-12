@@ -27,16 +27,41 @@ public sealed class RouteFinanceService(
             + totals.PaymentCollections
             + totals.IncomeInvestments
             - totals.Expenses;
+
+        var openClosing = await repository.FindActiveOpenClosingAsync(command.Actor.TenantId, routeId, cancellationToken);
+        decimal initialBalance;
+        decimal cajaLoans = 0m;
+        decimal cajaPayments = 0m;
+        decimal cajaIncome = 0m;
+        decimal cajaExpenses = 0m;
+
+        if (openClosing is not null && openClosing.OpenedAtUtc.HasValue)
+        {
+            var cajaTotals = await repository.GetTotalsSinceAsync(command.Actor.TenantId, routeId, openClosing.OpenedAtUtc.Value, cancellationToken);
+            cajaLoans = cajaTotals.LoanDisbursements;
+            cajaPayments = cajaTotals.PaymentCollections;
+            cajaIncome = cajaTotals.IncomeInvestments;
+            cajaExpenses = cajaTotals.Expenses;
+            var delta = cajaPayments + cajaIncome - cajaLoans - cajaExpenses;
+            initialBalance = net - delta;
+        }
+        else
+        {
+            // Si la caja está cerrada, balance inicial y actual siempre debe de ir igual
+            // y los movimientos de la caja son 0
+            initialBalance = net;
+        }
+
         return new RouteFinanceResult(
             RouteFinanceOutcome.Success,
             Balance: new RouteBalanceDetails(
                 route.Id,
                 route.Name,
-                route.InitialBalance,
-                totals.LoanDisbursements,
-                totals.PaymentCollections,
-                totals.IncomeInvestments,
-                totals.Expenses,
+                initialBalance,
+                cajaLoans,
+                cajaPayments,
+                cajaIncome,
+                cajaExpenses,
                 net));
     }
 
@@ -52,7 +77,7 @@ public sealed class RouteFinanceService(
         if (types is null) return RouteFinanceResult.Invalid("La sección financiera indicada no es válida.");
         var entries = await repository.ListEntriesAsync(command.Actor.TenantId, routeId, types, cancellationToken);
         var now = DateTimeOffset.UtcNow;
-        var isClosed = await IsDayClosedAsync(command.Actor.TenantId, routeId, now, routeResult.Route!.TimeZoneId, cancellationToken);
+        var isClosed = await IsDayClosedAsync(command.Actor.TenantId, routeId, now, routeResult.Route!, cancellationToken);
         return new RouteFinanceResult(
             RouteFinanceOutcome.Success,
             Entries: entries.Select(entry => ToDetails(entry, command.Actor, now, routeResult.Route!.TimeZoneId, isClosed)).ToArray());
@@ -67,9 +92,18 @@ public sealed class RouteFinanceService(
         if (routeResult.Failure is not null) return routeResult.Failure;
 
         var now = DateTimeOffset.UtcNow;
-        if (await IsDayClosedAsync(command.Actor.TenantId, input.RouteId, now, routeResult.Route!.TimeZoneId, cancellationToken))
+        var boxValidation = await ValidateCashBoxForMovementAsync(
+            repository,
+            command.Actor.TenantId,
+            routeResult.Route!,
+            command.Actor.UserId,
+            command.ActorDisplayName,
+            now,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return RouteFinanceResult.Invalid("El día se encuentra cerrado para esta ruta. No es posible crear nuevos movimientos.");
+            return RouteFinanceResult.Invalid(boxValidation.ErrorMessage!);
         }
 
         try
@@ -125,9 +159,18 @@ public sealed class RouteFinanceService(
         var routeResult = await FindAccessibleRouteAsync(command.AccessToken, entry.RouteId, cancellationToken);
         if (routeResult.Failure is not null) return routeResult.Failure;
         var now = DateTimeOffset.UtcNow;
-        if (await IsDayClosedAsync(command.Actor.TenantId, entry.RouteId, now, routeResult.Route!.TimeZoneId, cancellationToken))
+        var boxValidation = await ValidateCashBoxForMovementAsync(
+            repository,
+            command.Actor.TenantId,
+            routeResult.Route!,
+            command.Actor.UserId,
+            command.ActorDisplayName,
+            now,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return RouteFinanceResult.Invalid("El día se encuentra cerrado para esta ruta. No es posible modificar movimientos.");
+            return RouteFinanceResult.Invalid(boxValidation.ErrorMessage!);
         }
 
         if (!CanEdit(entry, command.Actor, now, routeResult.Route!.TimeZoneId))
@@ -181,12 +224,21 @@ public sealed class RouteFinanceService(
         var routeResult = await FindAccessibleRouteAsync(command.AccessToken, entry.RouteId, cancellationToken);
         if (routeResult.Failure is not null) return routeResult.Failure;
         var now = DateTimeOffset.UtcNow;
-        if (await IsDayClosedAsync(command.Actor.TenantId, entry.RouteId, now, routeResult.Route!.TimeZoneId, cancellationToken))
+        var boxValidation = await ValidateCashBoxForMovementAsync(
+            repository,
+            command.Actor.TenantId,
+            routeResult.Route!,
+            command.Actor.UserId,
+            command.ActorDisplayName,
+            now,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return RouteFinanceResult.Invalid("El día se encuentra cerrado para esta ruta. No es posible eliminar movimientos.");
+            return RouteFinanceResult.Invalid(boxValidation.ErrorMessage!);
         }
 
-        if (!CanEdit(entry, command.Actor, now, routeResult.Route.TimeZoneId))
+        if (!CanEdit(entry, command.Actor, now, routeResult.Route!.TimeZoneId))
         {
             return RouteFinanceResult.Forbidden();
         }
@@ -224,7 +276,12 @@ public sealed class RouteFinanceService(
         var businessTimeZone = ResolveBusinessTimeZone(routeResult.Route!.TimeZoneId);
         var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, businessTimeZone).DateTime);
 
-        var closing = await repository.FindDayClosingAsync(command.Actor.TenantId, routeId, localDate, cancellationToken);
+        var closing = await repository.FindActiveOpenClosingAsync(command.Actor.TenantId, routeId, cancellationToken);
+        if (closing is null)
+        {
+            closing = await repository.FindDayClosingAsync(command.Actor.TenantId, routeId, localDate, cancellationToken);
+        }
+
         if (closing is null)
         {
             closing = RouteDayClosing.CreateClosed(command.Actor.TenantId, routeId, localDate, command.Actor.UserId, command.ActorDisplayName, now);
@@ -242,9 +299,9 @@ public sealed class RouteFinanceService(
             FinancialMovementEntityType.RouteFinancialEntry,
             closing.Id,
             FinancialMovementAuditAction.Updated,
-            "Cierre de Día",
+            "Cierre de Caja",
             0m,
-            $"Día cerrado por {command.ActorDisplayName} para la fecha operativa {localDate:yyyy-MM-dd}",
+            $"Caja cerrada por {command.ActorDisplayName} para la fecha operativa {closing.BusinessDate:yyyy-MM-dd}",
             command.Actor.UserId,
             command.ActorDisplayName,
             command.Actor.Role.ToString(),
@@ -257,19 +314,25 @@ public sealed class RouteFinanceService(
             RouteFinanceOutcome.Success,
             ClosingStatus: new DayClosingStatusDetails(
                 routeId,
-                routeResult.Route.Name,
-                localDate,
+                routeResult.Route!.Name,
+                closing.BusinessDate,
                 closing.IsClosed,
                 closing.ClosedAtUtc,
                 closing.ClosedByDisplayName,
                 closing.ReopenedAtUtc,
                 closing.ReopenedByDisplayName,
-                canReopen));
+                canReopen,
+                closing.OpenedAtUtc,
+                closing.OpenedByDisplayName,
+                false,
+                null,
+                closing.GetBoxName(routeResult.Route!.Name)));
     }
 
-    public async Task<RouteFinanceResult> ReopenDayAsync(
+    public async Task<RouteFinanceResult> ReopenBoxAsync(
         RouteFinanceCommand command,
         Guid routeId,
+        DateOnly? businessDate,
         CancellationToken cancellationToken)
     {
         var routeResult = await FindAccessibleRouteAsync(command.AccessToken, routeId, cancellationToken);
@@ -278,49 +341,68 @@ public sealed class RouteFinanceService(
         var canReopen = command.Actor.Role == UserRole.Admin || (command.Actor.Role == UserRole.Supervisor && command.Actor.CanReopenDay);
         if (!canReopen)
         {
-            return RouteFinanceResult.Forbidden("No tienes autorización para reabrir un día cerrado. Se requiere permiso administrativo.");
+            return RouteFinanceResult.Forbidden("Solo la administración puede reabrir una caja cerrada.");
+        }
+
+        var openClosing = await repository.FindActiveOpenClosingAsync(command.Actor.TenantId, routeId, cancellationToken);
+        if (openClosing is not null)
+        {
+            return RouteFinanceResult.Invalid("No es posible reabrir la caja porque existe una caja abierta para esta ruta. Debe cerrar la caja abierta primero.");
         }
 
         var now = DateTimeOffset.UtcNow;
-        var businessTimeZone = ResolveBusinessTimeZone(routeResult.Route!.TimeZoneId);
-        var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, businessTimeZone).DateTime);
+        var closing = businessDate.HasValue
+            ? await repository.FindDayClosingAsync(command.Actor.TenantId, routeId, businessDate.Value, cancellationToken)
+            : await repository.FindLatestDayClosingAsync(command.Actor.TenantId, routeId, cancellationToken);
 
-        var closing = await repository.FindDayClosingAsync(command.Actor.TenantId, routeId, localDate, cancellationToken);
-        if (closing is not null)
+        if (closing is null)
         {
-            closing.Reopen(command.Actor.UserId, command.ActorDisplayName, now);
-            await repository.SaveDayClosingAsync(closing, cancellationToken);
-
-            var audit = FinancialMovementAuditLog.Create(
-                command.Actor.TenantId,
-                routeId,
-                FinancialMovementEntityType.RouteFinancialEntry,
-                closing.Id,
-                FinancialMovementAuditAction.Updated,
-                "Reapertura de Día",
-                0m,
-                $"Día reabierto por {command.ActorDisplayName} para la fecha operativa {localDate:yyyy-MM-dd}",
-                command.Actor.UserId,
-                command.ActorDisplayName,
-                command.Actor.Role.ToString(),
-                now);
-            await repository.AddAuditLogAsync(audit, cancellationToken);
-            await repository.SaveChangesAsync(cancellationToken);
+            return RouteFinanceResult.NotFound();
         }
+
+        closing.Reopen(command.Actor.UserId, command.ActorDisplayName, now);
+        await repository.SaveDayClosingAsync(closing, cancellationToken);
+
+        var audit = FinancialMovementAuditLog.Create(
+            command.Actor.TenantId,
+            routeId,
+            FinancialMovementEntityType.RouteFinancialEntry,
+            closing.Id,
+            FinancialMovementAuditAction.Updated,
+            "Reapertura de Caja",
+            0m,
+            $"Caja reabierta por {command.ActorDisplayName} para la fecha operativa {closing.BusinessDate:yyyy-MM-dd}",
+            command.Actor.UserId,
+            command.ActorDisplayName,
+            command.Actor.Role.ToString(),
+            now);
+        await repository.AddAuditLogAsync(audit, cancellationToken);
+        await repository.SaveChangesAsync(cancellationToken);
 
         return new RouteFinanceResult(
             RouteFinanceOutcome.Success,
             ClosingStatus: new DayClosingStatusDetails(
                 routeId,
-                routeResult.Route.Name,
-                localDate,
-                closing?.IsClosed ?? false,
-                closing?.ClosedAtUtc,
-                closing?.ClosedByDisplayName,
-                closing?.ReopenedAtUtc,
-                closing?.ReopenedByDisplayName,
-                canReopen));
+                routeResult.Route!.Name,
+                closing.BusinessDate,
+                closing.IsClosed,
+                closing.ClosedAtUtc,
+                closing.ClosedByDisplayName,
+                closing.ReopenedAtUtc,
+                closing.ReopenedByDisplayName,
+                true,
+                closing.OpenedAtUtc,
+                closing.OpenedByDisplayName,
+                false,
+                null,
+                closing.GetBoxName(routeResult.Route!.Name)));
     }
+
+    public Task<RouteFinanceResult> ReopenDayAsync(
+        RouteFinanceCommand command,
+        Guid routeId,
+        CancellationToken cancellationToken) =>
+        ReopenBoxAsync(command, routeId, null, cancellationToken);
 
     public async Task<RouteFinanceResult> GetDayClosingStatusAsync(
         RouteFinanceCommand command,
@@ -333,22 +415,54 @@ public sealed class RouteFinanceService(
         var now = DateTimeOffset.UtcNow;
         var businessTimeZone = ResolveBusinessTimeZone(routeResult.Route!.TimeZoneId);
         var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, businessTimeZone).DateTime);
-
-        var closing = await repository.FindDayClosingAsync(command.Actor.TenantId, routeId, localDate, cancellationToken);
         var canReopen = command.Actor.Role == UserRole.Admin || (command.Actor.Role == UserRole.Supervisor && command.Actor.CanReopenDay);
 
+        var openClosing = await repository.FindActiveOpenClosingAsync(command.Actor.TenantId, routeId, cancellationToken);
+        if (openClosing is not null)
+        {
+            var cutoffUtc = CalculateCutoffUtc(openClosing.BusinessDate, routeResult.Route.DailyClosingTimeUtc, routeResult.Route.TimeZoneId);
+            var isCutoffExceeded = routeResult.Route.EnforceDailyClosingSchedule &&
+                                   cutoffUtc.HasValue &&
+                                   now >= cutoffUtc.Value;
+
+            return new RouteFinanceResult(
+                RouteFinanceOutcome.Success,
+                ClosingStatus: new DayClosingStatusDetails(
+                    routeId,
+                    routeResult.Route!.Name,
+                    openClosing.BusinessDate,
+                    openClosing.IsClosed,
+                    openClosing.ClosedAtUtc,
+                    openClosing.ClosedByDisplayName,
+                    openClosing.ReopenedAtUtc,
+                    openClosing.ReopenedByDisplayName,
+                    canReopen,
+                    openClosing.OpenedAtUtc,
+                    openClosing.OpenedByDisplayName,
+                    isCutoffExceeded,
+                    cutoffUtc,
+                    openClosing.GetBoxName(routeResult.Route!.Name)));
+        }
+
+        var latestClosing = await repository.FindLatestDayClosingAsync(command.Actor.TenantId, routeId, cancellationToken);
+        var closedBoxName = $"{routeResult.Route!.Name} | Caja Cerrada";
         return new RouteFinanceResult(
             RouteFinanceOutcome.Success,
             ClosingStatus: new DayClosingStatusDetails(
                 routeId,
-                routeResult.Route.Name,
-                localDate,
-                closing?.IsClosed ?? false,
-                closing?.ClosedAtUtc,
-                closing?.ClosedByDisplayName,
-                closing?.ReopenedAtUtc,
-                closing?.ReopenedByDisplayName,
-                canReopen));
+                routeResult.Route!.Name,
+                latestClosing?.BusinessDate ?? localDate,
+                latestClosing?.IsClosed ?? true,
+                latestClosing?.ClosedAtUtc,
+                latestClosing?.ClosedByDisplayName,
+                latestClosing?.ReopenedAtUtc,
+                latestClosing?.ReopenedByDisplayName,
+                canReopen,
+                latestClosing?.OpenedAtUtc,
+                latestClosing?.OpenedByDisplayName,
+                false,
+                null,
+                closedBoxName));
     }
 
     public async Task<RouteFinanceResult> ListAuditTraceAsync(
@@ -410,13 +524,85 @@ public sealed class RouteFinanceService(
         Guid tenantId,
         Guid routeId,
         DateTimeOffset now,
-        string timeZoneId,
+        AccessibleRoute route,
         CancellationToken cancellationToken)
     {
-        var businessTimeZone = ResolveBusinessTimeZone(timeZoneId);
+        var openClosing = await repository.FindActiveOpenClosingAsync(tenantId, routeId, cancellationToken);
+        if (openClosing is not null)
+        {
+            if (route.EnforceDailyClosingSchedule && route.DailyClosingTimeUtc.HasValue)
+            {
+                var cutoffUtc = CalculateCutoffUtc(openClosing.BusinessDate, route.DailyClosingTimeUtc, route.TimeZoneId);
+                if (cutoffUtc.HasValue && now >= cutoffUtc.Value) return true;
+            }
+            return false;
+        }
+
+        var businessTimeZone = ResolveBusinessTimeZone(route.TimeZoneId);
         var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, businessTimeZone).DateTime);
         var closing = await repository.FindDayClosingAsync(tenantId, routeId, localDate, cancellationToken);
         return closing?.IsClosed ?? false;
+    }
+
+    public static DateTimeOffset? CalculateCutoffUtc(
+        DateOnly businessDate,
+        TimeOnly? closingTimeUtc,
+        string timeZoneId)
+    {
+        if (!closingTimeUtc.HasValue) return null;
+        var tz = ResolveBusinessTimeZone(timeZoneId);
+
+        var dummyUtc = DateTime.UtcNow.Date.Add(closingTimeUtc.Value.ToTimeSpan());
+        var localTime = TimeZoneInfo.ConvertTimeFromUtc(dummyUtc, tz).TimeOfDay;
+        var localTimeOnly = TimeOnly.FromTimeSpan(localTime);
+
+        var cutoffDate = localTimeOnly < new TimeOnly(12, 0)
+            ? businessDate.AddDays(1)
+            : businessDate;
+
+        var cutoffLocal = cutoffDate.ToDateTime(localTimeOnly);
+        return new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(cutoffLocal, tz), TimeSpan.Zero);
+    }
+
+    public static async Task<CashBoxValidationResult> ValidateCashBoxForMovementAsync(
+        IRouteFinanceRepository repository,
+        Guid tenantId,
+        AccessibleRoute route,
+        Guid actorUserId,
+        string actorDisplayName,
+        DateTimeOffset nowUtc,
+        CancellationToken cancellationToken)
+    {
+        var tz = ResolveBusinessTimeZone(route.TimeZoneId);
+        var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(nowUtc, tz).DateTime);
+
+        var openClosing = await repository.FindActiveOpenClosingAsync(tenantId, route.Id, cancellationToken);
+        if (openClosing is not null)
+        {
+            if (route.EnforceDailyClosingSchedule && route.DailyClosingTimeUtc.HasValue)
+            {
+                var cutoffUtc = CalculateCutoffUtc(openClosing.BusinessDate, route.DailyClosingTimeUtc, route.TimeZoneId);
+                if (cutoffUtc.HasValue && nowUtc >= cutoffUtc.Value)
+                {
+                    return CashBoxValidationResult.Blocked("Debes cerrar caja para continuar.");
+                }
+            }
+
+            return CashBoxValidationResult.Allowed(openClosing);
+        }
+
+        // Si la caja está cerrada, al ingresar un nuevo movimiento se abre o reabre automáticamente
+        var todayClosing = await repository.FindDayClosingAsync(tenantId, route.Id, localDate, cancellationToken);
+        if (todayClosing is not null)
+        {
+            todayClosing.Reopen(actorUserId, actorDisplayName, nowUtc);
+            await repository.SaveDayClosingAsync(todayClosing, cancellationToken);
+            return CashBoxValidationResult.Allowed(todayClosing);
+        }
+
+        var newBox = RouteDayClosing.CreateOpen(tenantId, route.Id, localDate, actorUserId, actorDisplayName, nowUtc);
+        await repository.SaveDayClosingAsync(newBox, cancellationToken);
+        return CashBoxValidationResult.Allowed(newBox);
     }
 
     private async Task<(AccessibleRoute? Route, RouteFinanceResult? Failure)> FindAccessibleRouteAsync(

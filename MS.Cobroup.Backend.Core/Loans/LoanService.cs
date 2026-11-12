@@ -78,10 +78,18 @@ public sealed class LoanService(
         var localNow = TimeZoneInfo.ConvertTime(now, routeTz);
         var localDate = DateOnly.FromDateTime(localNow.DateTime);
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(command.Actor.TenantId, customer.RouteId, localDate, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            command.Actor.TenantId,
+            accessibleRoute,
+            command.Actor.UserId,
+            command.Actor.UserId.ToString("D"),
+            now,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible crear nuevos préstamos.");
+            return LoanResult.Conflict(boxValidation.ErrorMessage!);
         }
 
         // Check 1 Loan per customer per day in route
@@ -309,10 +317,18 @@ public sealed class LoanService(
         var localNow = TimeZoneInfo.ConvertTime(nowUtc, routeTz);
         var localDate = DateOnly.FromDateTime(localNow.DateTime);
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(command.Actor.TenantId, loan.RouteId, localDate, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            command.Actor.TenantId,
+            accessibleRoute,
+            command.Actor.UserId,
+            command.Actor.UserId.ToString("D"),
+            nowUtc,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible modificar préstamos.");
+            return LoanResult.Conflict(boxValidation.ErrorMessage!);
         }
 
         // Rule: Collector can only modify within same business day
@@ -419,10 +435,18 @@ public sealed class LoanService(
         var localNow = TimeZoneInfo.ConvertTime(nowUtc, routeTz);
         var localDate = DateOnly.FromDateTime(localNow.DateTime);
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(actor.TenantId, loan.RouteId, localDate, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            actor.TenantId,
+            accessibleRoute,
+            actor.UserId,
+            actor.UserId.ToString("D"),
+            nowUtc,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible eliminar préstamos.");
+            return LoanResult.Conflict(boxValidation.ErrorMessage!);
         }
 
         var loanLocalCreated = TimeZoneInfo.ConvertTime(loan.CreatedAtUtc, routeTz);
