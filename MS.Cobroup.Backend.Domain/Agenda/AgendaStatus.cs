@@ -5,5 +5,6 @@ public enum AgendaStatus
     Overdue,
     DueToday,
     Collected,
-    UpToDate
+    UpToDate,
+    WillNotPayToday
 }

@@ -399,3 +399,33 @@
 - Verificación: 115/115 pruebas pasando en `MS.Cobroup.Backend.Core.Tests`. Build Release 0 errores, 0 advertencias.
 - Git: commit autorizado por el usuario ("hacer commitds de frontend y backend"); sin push, merge, tag, PR ni despliegue.
 
+### 2026-11-12 — Desglose de créditos activos en agenda diaria
+
+- Solicitud: desglose individual de préstamos activos por cliente en la agenda diaria y commit autorizado por el usuario ("hacer commit de lo actual").
+- Contratos y Dominio: `AgendaItemDto` incorpora `InstallmentAmount` y `OverdueInstallmentsCount`.
+- Servicio: `AgendaService` procesa cada crédito activo como ítem independiente en `GetAgendaAsync`, preservando la agregación por cliente para las ubicaciones cartográficas en `GetMapLocationsAsync`.
+- Verificación: 116/116 pruebas aprobadas en `MS.Cobroup.Backend.Core.Tests`. Compilación Release sin errores ni advertencias.
+- Git: commit autorizado por el usuario sobre rama `feature/frontend-adjustment-filters`; sin push, merge, tag ni PR.
+
+### 2026-11-12 — Persistencia de motivos de no pago, regla de pagos y frecuencias en agenda
+
+- Solicitud: persistencia de "no pagará hoy" en base de datos con motivos parametrizables (creación, activación, desactivación), regla 4.1/4.2 de traslado inmediato a Pagos con cualquier recaudo del día, y soporte de periodicidad para filtros multidimensionales.
+- Dominio: entidades `NonPaymentReason` y `CustomerNonPaymentRecord` en `MS.Cobroup.Backend.Domain.Agenda`, y adición del estado `WillNotPayToday` a `AgendaStatus`.
+- Persistencia: `OperationsDbContext` mapea `agenda_non_payment_reasons` y `agenda_customer_non_payment_records` en el esquema `operations`. `EfAgendaRepository` provee sembrado automático de 6 motivos predeterminados por tenant, gestión de estado y persistencia idempotente (upsert/delete) por fecha operativa, ruta, cliente y crédito. Migración `20261112140000_AddAgendaNonPaymentRecords`.
+- Contratos y Servicio: `AgendaItemDto` incluye `PaymentFrequency`, `NonPaymentReasonId`, `NonPaymentReasonName` y `NonPaymentObservations`. `AgendaSummaryDto` incorpora `WillNotPayCount`. `AgendaService` prioriza el estado `Collected` ante cualquier pago del día (reglas 4.1 y 4.2) y asigna `WillNotPayToday` cuando existe registro de no pago (regla 4.3). Nuevos métodos para listar motivos, crear motivos, alternar estado activo/inactivo, registrar y desmarcar no pago.
+- API: `AgendaController` expone `GET /api/operations/v1/agenda/non-payment-reasons`, `POST /api/operations/v1/agenda/non-payment-reasons`, `PUT /api/operations/v1/agenda/non-payment-reasons/{id}/status`, `POST /api/operations/v1/agenda/will-not-pay` y `DELETE /api/operations/v1/agenda/will-not-pay`.
+- Pruebas y verificación: 119/119 pruebas unitarias aprobadas en `MS.Cobroup.Backend.Core.Tests` cubriendo estado `WillNotPayToday`, prioridad de pagos del día, registro y cancelación de no pagos. Compilación exitosa en todos los proyectos.
+- Git: commit local en rama `feature/frontend-adjustment-filters`; sin push, merge, tag, PR ni despliegue.
+
+### 2026-11-12 — Aplicación de migraciones en base de datos de operaciones
+
+- Solicitud expresa del usuario: "aplicar migraciones".
+- Generación de migración y snapshot: se instaló la herramienta CLI `dotnet-ef` v11.0.0; se regeneró formalmente la migración EF Core `20261112143425_AddAgendaNonPaymentRecords` actualizando `OperationsDbContextModelSnapshot.cs` y su clase diseñador correspondiente, validando con `dotnet ef migrations has-pending-model-changes` (0 cambios pendientes).
+- Ejecución en PostgreSQL: ejecutado `dotnet ef database update` apuntando a `dev_cobroup_operations` en PostgreSQL remoto (`Host=13.140.36.249:5432`).
+- Resultado: migración `20261112143425_AddAgendaNonPaymentRecords` aplicada exitosamente con bloqueo exclusivo. La verificación posterior con `dotnet ef migrations list` confirmó las 12 migraciones aplicadas en la base de datos sin pendientes.
+- Validación: 119/119 pruebas unitarias pasando en `MS.Cobroup.Backend.Core.Tests`.
+- Git: commit local en rama `feature/frontend-adjustment-filters`; sin push, merge, tag, PR ni despliegue.
+
+
+
+

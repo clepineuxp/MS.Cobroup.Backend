@@ -121,6 +121,41 @@ public sealed class AgendaServiceTests
     }
 
     [Fact]
+    public async Task GetAgendaAsync_produces_distinct_items_per_active_loan_for_same_customer()
+    {
+        var custId = Guid.NewGuid();
+        var loan1Id = Guid.NewGuid();
+        var loan2Id = Guid.NewGuid();
+
+        var loan1 = new AgendaLoanData(
+            loan1Id, 100m, 0m, 100m, 1,
+            [new(Guid.NewGuid(), 1, today, 100m, 0m, InstallmentStatus.Pending)]);
+        var loan2 = new AgendaLoanData(
+            loan2Id, 200m, 0m, 200m, 2,
+            [new(Guid.NewGuid(), 1, today.AddDays(-2), 100m, 0m, InstallmentStatus.Pending)]);
+
+        var customer = new AgendaCustomerData(custId, "Multi Prestamo", "Comercio", "3009998877", routeId, null, [loan1, loan2], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var items = result.Data!.Items.ToList();
+        Assert.Equal(2, items.Count);
+
+        var itemLoan1 = items.Single(i => i.ActiveLoanId == loan1Id);
+        Assert.Equal(AgendaStatus.DueToday, itemLoan1.Status);
+        Assert.Equal(100m, itemLoan1.InstallmentAmount);
+
+        var itemLoan2 = items.Single(i => i.ActiveLoanId == loan2Id);
+        Assert.Equal(AgendaStatus.Overdue, itemLoan2.Status);
+        Assert.Equal(1, itemLoan2.OverdueInstallmentsCount);
+    }
+
+    [Fact]
     public async Task GetAgendaAsync_forbids_access_to_unauthorized_route()
     {
         var unauthorizedRouteId = Guid.NewGuid();
@@ -230,12 +265,207 @@ public sealed class AgendaServiceTests
         Assert.Equal(20.00m, analytics.PortfolioAtRiskRate);
         Assert.Equal(5, analytics.AgingBuckets.Count);
     }
+
+    [Fact]
+    public async Task GetAgendaAsync_customer_marked_as_will_not_pay_has_status_WillNotPayToday()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today, 100m, 0m, InstallmentStatus.Pending)
+        };
+        var loan = new AgendaLoanData(loanId, 100m, 0m, 100m, 1, installments);
+        var nonPayment = new CustomerNonPaymentRecord(
+            Guid.NewGuid(),
+            tenantId,
+            routeId,
+            customerId,
+            loanId,
+            today,
+            Guid.NewGuid(),
+            "Cliente de viaje",
+            "Vuelve el lunes",
+            collectorId,
+            DateTimeOffset.UtcNow);
+
+        var customer = new AgendaCustomerData(
+            customerId,
+            "Maria Gomez",
+            null,
+            "3009998877",
+            routeId,
+            null,
+            [loan],
+            [],
+            [nonPayment]);
+
+        agendaRepository.Customers = [customer];
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.WillNotPayToday, item.Status);
+        Assert.Equal("No pagará hoy", item.StatusLabel);
+        Assert.Equal("Cliente de viaje", item.NonPaymentReasonName);
+        Assert.Equal("Vuelve el lunes", item.NonPaymentObservations);
+        Assert.Equal(1, result.Data.Summary.WillNotPayCount);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_partial_payment_today_moves_customer_to_Collected_even_with_overdue()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today.AddDays(-2), 100m, 0m, InstallmentStatus.Pending)
+        };
+        var loan = new AgendaLoanData(loanId, 100m, 0m, 100m, 1, installments);
+        var payment = new AgendaPaymentData(Guid.NewGuid(), loanId, 30m, DateTimeOffset.UtcNow, "Efectivo");
+
+        var customer = new AgendaCustomerData(
+            customerId,
+            "Juan Perez",
+            null,
+            "3001112233",
+            routeId,
+            null,
+            [loan],
+            [payment]);
+
+        agendaRepository.Customers = [customer];
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.Collected, item.Status);
+        Assert.Equal(30m, item.CollectedTodayAmount);
+        Assert.Equal(1, result.Data.Summary.CollectedCount);
+    }
+
+    [Fact]
+    public async Task RegisterWillNotPayAsync_and_CancelWillNotPayAsync_succeed()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+
+        var registerInput = new RegisterWillNotPayInput(
+            routeId,
+            customerId,
+            loanId,
+            today,
+            null,
+            "Sin fondos",
+            "Pasa mañana");
+
+        var regResult = await service.RegisterWillNotPayAsync(
+            new RegisterWillNotPayCommand(actor, "token", registerInput),
+            CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, regResult.Outcome);
+        Assert.Single(agendaRepository.NonPaymentRecords);
+        Assert.Equal("Sin fondos", agendaRepository.NonPaymentRecords[0].ReasonName);
+
+        var cancelInput = new CancelWillNotPayInput(routeId, customerId, loanId, today);
+        var cancelResult = await service.CancelWillNotPayAsync(
+            new CancelWillNotPayCommand(actor, "token", cancelInput),
+            CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, cancelResult.Outcome);
+        Assert.Empty(agendaRepository.NonPaymentRecords);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_daily_loan_with_today_installment_already_paid_still_appears_as_due_today()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today, 50m, 50m, InstallmentStatus.Paid),
+            new(Guid.NewGuid(), 2, today.AddDays(1), 50m, 0m, InstallmentStatus.Pending),
+            new(Guid.NewGuid(), 3, today.AddDays(2), 50m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 150m, 50m, 100m, 3, installments, PaymentFrequency.Daily);
+        var customer = new AgendaCustomerData(customerId, "Cliente Diario", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.DueToday, item.Status);
+        Assert.Equal(50m, item.DueTodayAmount);
+        Assert.Equal(50m, item.InstallmentAmount);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_weekly_uptodate_loan_does_not_appear_in_daily_matrix_until_mora_or_due_date()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today.AddDays(4), 100m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 100m, 0m, 100m, 1, installments, PaymentFrequency.Weekly);
+        var customer = new AgendaCustomerData(customerId, "Cliente Semanal Al Dia", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        Assert.Empty(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_weekly_loan_in_mora_appears_in_daily_matrix_until_completely_uptodate()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today.AddDays(-2), 100m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 100m, 0m, 100m, 1, installments, PaymentFrequency.Weekly);
+        var customer = new AgendaCustomerData(customerId, "Cliente Semanal En Mora", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.Overdue, item.Status);
+        Assert.Equal(100m, item.OverdueAmount);
+    }
 }
 
 internal sealed class InMemoryAgendaRepository : IAgendaRepository
 {
     public List<AgendaCustomerData> Customers { get; set; } = [];
     public List<RoutePortfolioData> RouteData { get; set; } = [];
+    public List<NonPaymentReason> NonPaymentReasons { get; set; } = [];
+    public List<CustomerNonPaymentRecord> NonPaymentRecords { get; set; } = [];
 
     public Task<IReadOnlyCollection<AgendaCustomerData>> GetAgendaCustomersAsync(
         Guid tenantId,
@@ -265,6 +495,82 @@ internal sealed class InMemoryAgendaRepository : IAgendaRepository
             filtered = filtered.Where(r => r.RouteId == routeId.Value);
         }
         return Task.FromResult<IReadOnlyCollection<RoutePortfolioData>>(filtered.ToList());
+    }
+
+    public Task<IReadOnlyCollection<NonPaymentReason>> GetNonPaymentReasonsAsync(
+        Guid tenantId,
+        bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        var query = NonPaymentReasons.Where(r => r.TenantId == tenantId);
+        if (!includeInactive)
+        {
+            query = query.Where(r => r.IsActive);
+        }
+        return Task.FromResult<IReadOnlyCollection<NonPaymentReason>>(query.OrderBy(r => r.DisplayOrder).ToList());
+    }
+
+    public Task<NonPaymentReason?> GetNonPaymentReasonByIdAsync(
+        Guid tenantId,
+        Guid reasonId,
+        CancellationToken cancellationToken)
+    {
+        return Task.FromResult(NonPaymentReasons.FirstOrDefault(r => r.TenantId == tenantId && r.Id == reasonId));
+    }
+
+    public Task SaveNonPaymentReasonAsync(
+        NonPaymentReason reason,
+        CancellationToken cancellationToken)
+    {
+        var idx = NonPaymentReasons.FindIndex(r => r.TenantId == reason.TenantId && r.Id == reason.Id);
+        if (idx >= 0)
+        {
+            NonPaymentReasons[idx] = reason;
+        }
+        else
+        {
+            NonPaymentReasons.Add(reason);
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(
+        Guid tenantId,
+        IReadOnlyCollection<Guid> accessibleRouteIds,
+        Guid? routeId,
+        DateOnly businessDate,
+        CancellationToken cancellationToken)
+    {
+        var targetRoutes = accessibleRouteIds;
+        if (routeId.HasValue)
+        {
+            targetRoutes = [routeId.Value];
+        }
+        var filtered = NonPaymentRecords
+            .Where(r => r.TenantId == tenantId && targetRoutes.Contains(r.RouteId) && r.BusinessDate == businessDate)
+            .ToList();
+        return Task.FromResult<IReadOnlyCollection<CustomerNonPaymentRecord>>(filtered);
+    }
+
+    public Task SaveNonPaymentRecordAsync(
+        CustomerNonPaymentRecord record,
+        CancellationToken cancellationToken)
+    {
+        NonPaymentRecords.RemoveAll(r => r.TenantId == record.TenantId && r.RouteId == record.RouteId && r.CustomerId == record.CustomerId && r.BusinessDate == record.BusinessDate && (record.LoanId == null || r.LoanId == record.LoanId || r.LoanId == null));
+        NonPaymentRecords.Add(record);
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteNonPaymentRecordAsync(
+        Guid tenantId,
+        Guid routeId,
+        Guid customerId,
+        Guid? loanId,
+        DateOnly businessDate,
+        CancellationToken cancellationToken)
+    {
+        NonPaymentRecords.RemoveAll(r => r.TenantId == tenantId && r.RouteId == routeId && r.CustomerId == customerId && r.BusinessDate == businessDate && (loanId == null || r.LoanId == loanId || r.LoanId == null));
+        return Task.CompletedTask;
     }
 }
 
