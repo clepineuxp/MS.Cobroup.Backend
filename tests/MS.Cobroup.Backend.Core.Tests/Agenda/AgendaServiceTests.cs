@@ -382,6 +382,82 @@ public sealed class AgendaServiceTests
         Assert.Equal(AgendaOutcome.Success, cancelResult.Outcome);
         Assert.Empty(agendaRepository.NonPaymentRecords);
     }
+
+    [Fact]
+    public async Task GetAgendaAsync_daily_loan_with_today_installment_already_paid_still_appears_as_due_today()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today, 50m, 50m, InstallmentStatus.Paid),
+            new(Guid.NewGuid(), 2, today.AddDays(1), 50m, 0m, InstallmentStatus.Pending),
+            new(Guid.NewGuid(), 3, today.AddDays(2), 50m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 150m, 50m, 100m, 3, installments, PaymentFrequency.Daily);
+        var customer = new AgendaCustomerData(customerId, "Cliente Diario", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.DueToday, item.Status);
+        Assert.Equal(50m, item.DueTodayAmount);
+        Assert.Equal(50m, item.InstallmentAmount);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_weekly_uptodate_loan_does_not_appear_in_daily_matrix_until_mora_or_due_date()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today.AddDays(4), 100m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 100m, 0m, 100m, 1, installments, PaymentFrequency.Weekly);
+        var customer = new AgendaCustomerData(customerId, "Cliente Semanal Al Dia", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        Assert.Empty(result.Data!.Items);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_weekly_loan_in_mora_appears_in_daily_matrix_until_completely_uptodate()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today.AddDays(-2), 100m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 100m, 0m, 100m, 1, installments, PaymentFrequency.Weekly);
+        var customer = new AgendaCustomerData(customerId, "Cliente Semanal En Mora", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.Overdue, item.Status);
+        Assert.Equal(100m, item.OverdueAmount);
+    }
 }
 
 internal sealed class InMemoryAgendaRepository : IAgendaRepository

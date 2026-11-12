@@ -1,6 +1,7 @@
 using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Agenda;
+using MS.Cobroup.Backend.Domain.Loans;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 
 namespace MS.Cobroup.Backend.Core.Agenda;
@@ -256,6 +257,15 @@ public sealed class AgendaService(
                 var collectedToday = c.PaymentsOnDate.Sum(p => p.Amount);
                 var customerNonPayment = c.NonPaymentRecords?.FirstOrDefault(r => r.BusinessDate == targetDate);
 
+                // If customer has no active loans, include only if they had payment today,
+                // a non-payment record today, or if coordinates are present for map/routing
+                var hasActivityToday = collectedToday > 0m || customerNonPayment != null;
+                var hasCoordinates = c.Location is not null;
+                if (!hasActivityToday && !hasCoordinates)
+                {
+                    continue;
+                }
+
                 AgendaStatus status;
                 string statusLabel;
                 string markerColor;
@@ -351,6 +361,8 @@ public sealed class AgendaService(
                 var nonPaymentRecord = c.NonPaymentRecords?.FirstOrDefault(r =>
                     r.BusinessDate == targetDate && (r.LoanId == loan.LoanId || r.LoanId == null));
 
+                var isDaily = loan.PaymentFrequency == PaymentFrequency.Daily;
+
                 AgendaStatus status;
                 string statusLabel;
                 string markerColor;
@@ -381,11 +393,43 @@ public sealed class AgendaService(
                     statusLabel = "Cobro hoy";
                     markerColor = "#F59E0B"; // warning yellow/amber
                 }
+                else if (isDaily && loan.BalanceAmount > 0m)
+                {
+                    // Regla de matriz diaria para crédito diario activo:
+                    // "si un cliente tiene pago diario debe salir diario a menos que ya terminara el credito,
+                    //  si un cliente segun el plan de pagos el dia de hoy ya sale como pago, igual debe de salir
+                    //  y si no pagara se debe indicar un motivo de no pago"
+                    status = AgendaStatus.DueToday;
+                    statusLabel = "Cobro hoy";
+                    markerColor = "#F59E0B";
+                    if (dueTodayAmount == 0m)
+                    {
+                        dueTodayAmount = Math.Min(installmentAmount, loan.BalanceAmount);
+                    }
+                }
                 else
                 {
                     status = AgendaStatus.UpToDate;
                     statusLabel = "Al día";
                     markerColor = "#3B82F6"; // info blue
+                }
+
+                // Motivos para aparecer en la matriz diaria de cobro:
+                // 1. Crédito diario activo (sale a diario hasta terminar el crédito).
+                // 2. Crédito semanal o mensual en su fecha correspondiente de cobro (dueTodayAmount > 0).
+                // 3. Crédito semanal o mensual en mora (overdueAmount > 0) -> continúa saliendo hasta que salga de la mora.
+                // 4. Crédito con recaudos registrados hoy (collectedForThisLoan > 0).
+                // 5. Crédito marcado con novedad de no pago hoy (nonPaymentRecord != null).
+                // Los créditos semanales/mensuales completamente al día (sin mora y cuyo cobro no es hoy) no aparecen en la matriz del día.
+                var belongsToMatrix = (isDaily && loan.BalanceAmount > 0m)
+                    || dueTodayAmount > 0m
+                    || overdueAmount > 0m
+                    || collectedForThisLoan > 0m
+                    || nonPaymentRecord != null;
+
+                if (!belongsToMatrix)
+                {
+                    continue;
                 }
 
                 items.Add(new AgendaItemDto(
