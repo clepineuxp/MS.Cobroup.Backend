@@ -407,4 +407,15 @@
 - Verificación: 116/116 pruebas aprobadas en `MS.Cobroup.Backend.Core.Tests`. Compilación Release sin errores ni advertencias.
 - Git: commit autorizado por el usuario sobre rama `feature/frontend-adjustment-filters`; sin push, merge, tag ni PR.
 
+### 2026-11-12 — Persistencia de motivos de no pago, regla de pagos y frecuencias en agenda
+
+- Solicitud: persistencia de "no pagará hoy" en base de datos con motivos parametrizables (creación, activación, desactivación), regla 4.1/4.2 de traslado inmediato a Pagos con cualquier recaudo del día, y soporte de periodicidad para filtros multidimensionales.
+- Dominio: entidades `NonPaymentReason` y `CustomerNonPaymentRecord` en `MS.Cobroup.Backend.Domain.Agenda`, y adición del estado `WillNotPayToday` a `AgendaStatus`.
+- Persistencia: `OperationsDbContext` mapea `agenda_non_payment_reasons` y `agenda_customer_non_payment_records` en el esquema `operations`. `EfAgendaRepository` provee sembrado automático de 6 motivos predeterminados por tenant, gestión de estado y persistencia idempotente (upsert/delete) por fecha operativa, ruta, cliente y crédito. Migración `20261112140000_AddAgendaNonPaymentRecords`.
+- Contratos y Servicio: `AgendaItemDto` incluye `PaymentFrequency`, `NonPaymentReasonId`, `NonPaymentReasonName` y `NonPaymentObservations`. `AgendaSummaryDto` incorpora `WillNotPayCount`. `AgendaService` prioriza el estado `Collected` ante cualquier pago del día (reglas 4.1 y 4.2) y asigna `WillNotPayToday` cuando existe registro de no pago (regla 4.3). Nuevos métodos para listar motivos, crear motivos, alternar estado activo/inactivo, registrar y desmarcar no pago.
+- API: `AgendaController` expone `GET /api/operations/v1/agenda/non-payment-reasons`, `POST /api/operations/v1/agenda/non-payment-reasons`, `PUT /api/operations/v1/agenda/non-payment-reasons/{id}/status`, `POST /api/operations/v1/agenda/will-not-pay` y `DELETE /api/operations/v1/agenda/will-not-pay`.
+- Pruebas y verificación: 119/119 pruebas unitarias aprobadas en `MS.Cobroup.Backend.Core.Tests` cubriendo estado `WillNotPayToday`, prioridad de pagos del día, registro y cancelación de no pagos. Compilación exitosa en todos los proyectos.
+- Git: commit local en rama `feature/frontend-adjustment-filters`; sin push, merge, tag, PR ni despliegue.
+
+
 

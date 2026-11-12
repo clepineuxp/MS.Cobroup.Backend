@@ -18,6 +18,39 @@ public interface IAgendaRepository
         Guid? routeId,
         DateOnly targetDate,
         CancellationToken cancellationToken);
+
+    Task<IReadOnlyCollection<NonPaymentReason>> GetNonPaymentReasonsAsync(
+        Guid tenantId,
+        bool includeInactive,
+        CancellationToken cancellationToken);
+
+    Task<NonPaymentReason?> GetNonPaymentReasonByIdAsync(
+        Guid tenantId,
+        Guid reasonId,
+        CancellationToken cancellationToken);
+
+    Task SaveNonPaymentReasonAsync(
+        NonPaymentReason reason,
+        CancellationToken cancellationToken);
+
+    Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(
+        Guid tenantId,
+        IReadOnlyCollection<Guid> accessibleRouteIds,
+        Guid? routeId,
+        DateOnly businessDate,
+        CancellationToken cancellationToken);
+
+    Task SaveNonPaymentRecordAsync(
+        CustomerNonPaymentRecord record,
+        CancellationToken cancellationToken);
+
+    Task DeleteNonPaymentRecordAsync(
+        Guid tenantId,
+        Guid routeId,
+        Guid customerId,
+        Guid? loanId,
+        DateOnly businessDate,
+        CancellationToken cancellationToken);
 }
 
 public sealed record AgendaLocationData(
@@ -40,7 +73,8 @@ public sealed record AgendaLoanData(
     decimal PaidAmount,
     decimal BalanceAmount,
     int InstallmentCount,
-    IReadOnlyCollection<AgendaInstallmentData> Installments);
+    IReadOnlyCollection<AgendaInstallmentData> Installments,
+    PaymentFrequency PaymentFrequency = PaymentFrequency.Daily);
 
 public sealed record AgendaPaymentData(
     Guid PaymentId,
@@ -57,7 +91,8 @@ public sealed record AgendaCustomerData(
     Guid RouteId,
     AgendaLocationData? Location,
     IReadOnlyCollection<AgendaLoanData> ActiveLoans,
-    IReadOnlyCollection<AgendaPaymentData> PaymentsOnDate);
+    IReadOnlyCollection<AgendaPaymentData> PaymentsOnDate,
+    IReadOnlyCollection<CustomerNonPaymentRecord>? NonPaymentRecords = null);
 
 public sealed record AgingBucketData(
     string BucketKey,

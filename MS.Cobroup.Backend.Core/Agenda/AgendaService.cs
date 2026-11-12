@@ -254,9 +254,30 @@ public sealed class AgendaService(
             if (c.ActiveLoans.Count == 0)
             {
                 var collectedToday = c.PaymentsOnDate.Sum(p => p.Amount);
-                var status = collectedToday > 0m ? AgendaStatus.Collected : AgendaStatus.UpToDate;
-                var statusLabel = collectedToday > 0m ? "Cobrado hoy" : "Al día";
-                var markerColor = collectedToday > 0m ? "#10B981" : "#3B82F6";
+                var customerNonPayment = c.NonPaymentRecords?.FirstOrDefault(r => r.BusinessDate == targetDate);
+
+                AgendaStatus status;
+                string statusLabel;
+                string markerColor;
+
+                if (collectedToday > 0m)
+                {
+                    status = AgendaStatus.Collected;
+                    statusLabel = "Cobrado hoy";
+                    markerColor = "#10B981";
+                }
+                else if (customerNonPayment != null)
+                {
+                    status = AgendaStatus.WillNotPayToday;
+                    statusLabel = "No pagará hoy";
+                    markerColor = "#EC4899";
+                }
+                else
+                {
+                    status = AgendaStatus.UpToDate;
+                    statusLabel = "Al día";
+                    markerColor = "#3B82F6";
+                }
 
                 items.Add(new AgendaItemDto(
                     c.CustomerId,
@@ -279,7 +300,11 @@ public sealed class AgendaService(
                     markerColor,
                     distanceKm,
                     0m,
-                    0));
+                    0,
+                    null,
+                    customerNonPayment?.ReasonId,
+                    customerNonPayment?.ReasonName,
+                    customerNonPayment?.Observations));
                 continue;
             }
 
@@ -323,12 +348,28 @@ public sealed class AgendaService(
                     ?? (loan.InstallmentCount > 0 ? loan.TotalAmount / loan.InstallmentCount : 0m);
 
                 var collectedForThisLoan = c.PaymentsOnDate.Where(p => p.LoanId == loan.LoanId).Sum(p => p.Amount);
+                var nonPaymentRecord = c.NonPaymentRecords?.FirstOrDefault(r =>
+                    r.BusinessDate == targetDate && (r.LoanId == loan.LoanId || r.LoanId == null));
 
                 AgendaStatus status;
                 string statusLabel;
                 string markerColor;
 
-                if (overdueAmount > 0m)
+                if (collectedForThisLoan > 0m)
+                {
+                    // Rule 4.1 & 4.2: Any payment today moves customer to "Pagos" (Collected)
+                    status = AgendaStatus.Collected;
+                    statusLabel = "Cobrado hoy";
+                    markerColor = "#10B981"; // success green
+                }
+                else if (nonPaymentRecord != null)
+                {
+                    // Rule 4.3: Customer marked as will not pay today
+                    status = AgendaStatus.WillNotPayToday;
+                    statusLabel = "No pagará hoy";
+                    markerColor = "#EC4899"; // pink
+                }
+                else if (overdueAmount > 0m)
                 {
                     status = AgendaStatus.Overdue;
                     statusLabel = $"En mora ({daysOverdue}d)";
@@ -339,12 +380,6 @@ public sealed class AgendaService(
                     status = AgendaStatus.DueToday;
                     statusLabel = "Cobro hoy";
                     markerColor = "#F59E0B"; // warning yellow/amber
-                }
-                else if (collectedForThisLoan > 0m)
-                {
-                    status = AgendaStatus.Collected;
-                    statusLabel = "Cobrado hoy";
-                    markerColor = "#10B981"; // success green
                 }
                 else
                 {
@@ -374,7 +409,11 @@ public sealed class AgendaService(
                     markerColor,
                     distanceKm,
                     installmentAmount,
-                    overdueCount));
+                    overdueCount,
+                    loan.PaymentFrequency.ToString(),
+                    nonPaymentRecord?.ReasonId,
+                    nonPaymentRecord?.ReasonName,
+                    nonPaymentRecord?.Observations));
             }
         }
 
@@ -437,6 +476,7 @@ public sealed class AgendaService(
         var dueTodayCount = items.Count(i => i.Status is AgendaStatus.DueToday);
         var collectedCount = items.Count(i => i.Status is AgendaStatus.Collected);
         var upToDateCount = items.Count(i => i.Status is AgendaStatus.UpToDate);
+        var willNotPayCount = items.Count(i => i.Status is AgendaStatus.WillNotPayToday);
 
         return new AgendaSummaryDto(
             targetDate,
@@ -448,7 +488,140 @@ public sealed class AgendaService(
             overdueCount,
             dueTodayCount,
             collectedCount,
-            upToDateCount);
+            upToDateCount,
+            willNotPayCount);
+    }
+
+    public async Task<AgendaResult<IReadOnlyCollection<NonPaymentReasonDto>>> GetNonPaymentReasonsAsync(
+        CustomerActor actor,
+        bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        var reasons = await agendaRepository.GetNonPaymentReasonsAsync(actor.TenantId, includeInactive, cancellationToken);
+        var dtos = reasons.Select(r => new NonPaymentReasonDto(r.Id, r.Name, r.Description, r.IsActive, r.DisplayOrder)).ToList();
+        return AgendaResult<IReadOnlyCollection<NonPaymentReasonDto>>.Success(dtos);
+    }
+
+    public async Task<AgendaResult<NonPaymentReasonDto>> CreateNonPaymentReasonAsync(
+        CreateNonPaymentReasonCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.Input.Name))
+        {
+            return AgendaResult<NonPaymentReasonDto>.Invalid("El nombre del motivo es requerido.");
+        }
+
+        var reason = new NonPaymentReason(
+            Guid.NewGuid(),
+            command.Actor.TenantId,
+            command.Input.Name,
+            command.Input.Description,
+            isActive: true,
+            displayOrder: command.Input.DisplayOrder,
+            DateTimeOffset.UtcNow);
+
+        await agendaRepository.SaveNonPaymentReasonAsync(reason, cancellationToken);
+        var dto = new NonPaymentReasonDto(reason.Id, reason.Name, reason.Description, reason.IsActive, reason.DisplayOrder);
+        return AgendaResult<NonPaymentReasonDto>.Success(dto);
+    }
+
+    public async Task<AgendaResult<NonPaymentReasonDto>> ToggleNonPaymentReasonStatusAsync(
+        ToggleNonPaymentReasonStatusCommand command,
+        CancellationToken cancellationToken)
+    {
+        var reason = await agendaRepository.GetNonPaymentReasonByIdAsync(command.Actor.TenantId, command.ReasonId, cancellationToken);
+        if (reason is null)
+        {
+            return AgendaResult<NonPaymentReasonDto>.Invalid("El motivo de no pago no existe.");
+        }
+
+        if (command.IsActive)
+        {
+            reason.Activate();
+        }
+        else
+        {
+            reason.Deactivate();
+        }
+
+        await agendaRepository.SaveNonPaymentReasonAsync(reason, cancellationToken);
+        var dto = new NonPaymentReasonDto(reason.Id, reason.Name, reason.Description, reason.IsActive, reason.DisplayOrder);
+        return AgendaResult<NonPaymentReasonDto>.Success(dto);
+    }
+
+    public async Task<AgendaResult<bool>> RegisterWillNotPayAsync(
+        RegisterWillNotPayCommand command,
+        CancellationToken cancellationToken)
+    {
+        var routesResult = await routeDirectory.ListAccessibleAsync(command.AccessToken, cancellationToken);
+        if (routesResult.Outcome is not RouteDirectoryOutcome.Success)
+        {
+            return MapRouteFailure<bool>(routesResult.Outcome);
+        }
+
+        var accessibleRouteIds = routesResult.Routes.Select(r => r.Id).ToList();
+        if (!accessibleRouteIds.Contains(command.Input.RouteId))
+        {
+            return AgendaResult<bool>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
+        }
+
+        string reasonName = command.Input.ReasonName?.Trim() ?? string.Empty;
+        if (command.Input.ReasonId.HasValue)
+        {
+            var reason = await agendaRepository.GetNonPaymentReasonByIdAsync(command.Actor.TenantId, command.Input.ReasonId.Value, cancellationToken);
+            if (reason is not null)
+            {
+                reasonName = reason.Name;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(reasonName))
+        {
+            reasonName = "No especificado";
+        }
+
+        var record = new CustomerNonPaymentRecord(
+            Guid.NewGuid(),
+            command.Actor.TenantId,
+            command.Input.RouteId,
+            command.Input.CustomerId,
+            command.Input.LoanId,
+            command.Input.BusinessDate,
+            command.Input.ReasonId,
+            reasonName,
+            command.Input.Observations,
+            command.Actor.UserId,
+            DateTimeOffset.UtcNow);
+
+        await agendaRepository.SaveNonPaymentRecordAsync(record, cancellationToken);
+        return AgendaResult<bool>.Success(true);
+    }
+
+    public async Task<AgendaResult<bool>> CancelWillNotPayAsync(
+        CancelWillNotPayCommand command,
+        CancellationToken cancellationToken)
+    {
+        var routesResult = await routeDirectory.ListAccessibleAsync(command.AccessToken, cancellationToken);
+        if (routesResult.Outcome is not RouteDirectoryOutcome.Success)
+        {
+            return MapRouteFailure<bool>(routesResult.Outcome);
+        }
+
+        var accessibleRouteIds = routesResult.Routes.Select(r => r.Id).ToList();
+        if (!accessibleRouteIds.Contains(command.Input.RouteId))
+        {
+            return AgendaResult<bool>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
+        }
+
+        await agendaRepository.DeleteNonPaymentRecordAsync(
+            command.Actor.TenantId,
+            command.Input.RouteId,
+            command.Input.CustomerId,
+            command.Input.LoanId,
+            command.Input.BusinessDate,
+            cancellationToken);
+
+        return AgendaResult<bool>.Success(true);
     }
 
     private static AgendaResult<T> MapRouteFailure<T>(RouteDirectoryOutcome outcome) =>

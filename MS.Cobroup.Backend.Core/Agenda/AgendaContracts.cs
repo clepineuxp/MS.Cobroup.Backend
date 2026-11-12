@@ -25,7 +25,11 @@ public sealed record AgendaItemDto(
     string MarkerColor,
     decimal? DistanceKm,
     decimal InstallmentAmount = 0m,
-    int OverdueInstallmentsCount = 0);
+    int OverdueInstallmentsCount = 0,
+    string? PaymentFrequency = null,
+    Guid? NonPaymentReasonId = null,
+    string? NonPaymentReasonName = null,
+    string? NonPaymentObservations = null);
 
 public sealed record AgendaSummaryDto(
     DateOnly TargetDate,
@@ -37,7 +41,8 @@ public sealed record AgendaSummaryDto(
     int OverdueCount,
     int DueTodayCount,
     int CollectedCount,
-    int UpToDateCount);
+    int UpToDateCount,
+    int WillNotPayCount = 0);
 
 public sealed record AgendaResponse(
     AgendaSummaryDto Summary,
@@ -132,3 +137,57 @@ public sealed class AgendaResult<T>
     public static AgendaResult<T> Unavailable(string message = "Servicio no disponible.") => new(AgendaOutcome.Unavailable, default, message);
     public static AgendaResult<T> Invalid(string message) => new(AgendaOutcome.Invalid, default, message);
 }
+
+public sealed record NonPaymentReasonDto(
+    Guid Id,
+    string Name,
+    string? Description,
+    bool IsActive,
+    int DisplayOrder);
+
+public sealed record CreateNonPaymentReasonInput(
+    string Name,
+    string? Description,
+    int DisplayOrder = 0);
+
+public sealed record UpdateNonPaymentReasonInput(
+    string Name,
+    string? Description,
+    int DisplayOrder,
+    bool IsActive);
+
+public sealed record CreateNonPaymentReasonCommand(
+    CustomerActor Actor,
+    CreateNonPaymentReasonInput Input);
+
+public sealed record ToggleReasonStatusInput(bool IsActive);
+
+public sealed record ToggleNonPaymentReasonStatusCommand(
+    CustomerActor Actor,
+    Guid ReasonId,
+    bool IsActive);
+
+public sealed record RegisterWillNotPayInput(
+    Guid RouteId,
+    Guid CustomerId,
+    Guid? LoanId,
+    DateOnly BusinessDate,
+    Guid? ReasonId,
+    string? ReasonName,
+    string? Observations);
+
+public sealed record RegisterWillNotPayCommand(
+    CustomerActor Actor,
+    string AccessToken,
+    RegisterWillNotPayInput Input);
+
+public sealed record CancelWillNotPayInput(
+    Guid RouteId,
+    Guid CustomerId,
+    Guid? LoanId,
+    DateOnly BusinessDate);
+
+public sealed record CancelWillNotPayCommand(
+    CustomerActor Actor,
+    string AccessToken,
+    CancelWillNotPayInput Input);

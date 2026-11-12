@@ -84,6 +84,86 @@ public sealed class AgendaController(AgendaService service) : ControllerBase
         return MapResult(result);
     }
 
+    [HttpGet("non-payment-reasons")]
+    public async Task<IActionResult> GetNonPaymentReasons(
+        [FromQuery] bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var result = await service.GetNonPaymentReasonsAsync(actor, includeInactive, cancellationToken);
+        return MapResult(result);
+    }
+
+    [HttpPost("non-payment-reasons")]
+    public async Task<IActionResult> CreateNonPaymentReason(
+        [FromBody] CreateNonPaymentReasonInput input,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var command = new CreateNonPaymentReasonCommand(actor, input);
+        var result = await service.CreateNonPaymentReasonAsync(command, cancellationToken);
+        return MapResult(result);
+    }
+
+    [HttpPut("non-payment-reasons/{id:guid}/status")]
+    public async Task<IActionResult> ToggleNonPaymentReasonStatus(
+        [FromRoute] Guid id,
+        [FromBody] ToggleReasonStatusInput input,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var command = new ToggleNonPaymentReasonStatusCommand(actor, id, input.IsActive);
+        var result = await service.ToggleNonPaymentReasonStatusAsync(command, cancellationToken);
+        return MapResult(result);
+    }
+
+    [HttpPost("will-not-pay")]
+    public async Task<IActionResult> RegisterWillNotPay(
+        [FromBody] RegisterWillNotPayInput input,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var token = CustomerActorReader.ReadBearerToken(Request);
+        var command = new RegisterWillNotPayCommand(actor, token, input);
+        var result = await service.RegisterWillNotPayAsync(command, cancellationToken);
+        return MapResult(result);
+    }
+
+    [HttpDelete("will-not-pay")]
+    public async Task<IActionResult> CancelWillNotPay(
+        [FromQuery] Guid routeId,
+        [FromQuery] Guid customerId,
+        [FromQuery] Guid? loanId,
+        [FromQuery] DateOnly businessDate,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var token = CustomerActorReader.ReadBearerToken(Request);
+        var command = new CancelWillNotPayCommand(actor, token, new CancelWillNotPayInput(routeId, customerId, loanId, businessDate));
+        var result = await service.CancelWillNotPayAsync(command, cancellationToken);
+        return MapResult(result);
+    }
+
     private IActionResult MapResult<T>(AgendaResult<T> result) =>
         result.Outcome switch
         {

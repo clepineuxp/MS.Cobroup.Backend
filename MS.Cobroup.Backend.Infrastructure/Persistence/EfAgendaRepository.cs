@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MS.Cobroup.Backend.Domain.Agenda;
 using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 using MS.Cobroup.Backend.Domain.Loans;
@@ -72,6 +73,15 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
             .GroupBy(p => p.CustomerId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
+        var nonPaymentRecords = await dbContext.CustomerNonPaymentRecords
+            .AsNoTracking()
+            .Where(r => r.TenantId == tenantId && targetRoutes.Contains(r.RouteId) && r.BusinessDate == targetDate)
+            .ToListAsync(cancellationToken);
+
+        var nonPaymentsByCustomer = nonPaymentRecords
+            .GroupBy(r => r.CustomerId)
+            .ToDictionary(g => g.Key, g => (IReadOnlyCollection<CustomerNonPaymentRecord>)g.ToList());
+
         var result = new List<AgendaCustomerData>(customers.Count);
 
         foreach (var c in customers)
@@ -96,7 +106,8 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
                         i.DueDate,
                         i.ExpectedAmount,
                         i.PaidAmount,
-                        i.Status)).ToList())).ToList()
+                        i.Status)).ToList(),
+                    l.Terms.PaymentFrequency)).ToList()
                 : [];
 
             var customerPayments = paymentsByCustomer.TryGetValue(c.Id, out var cPayments)
@@ -108,6 +119,10 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
                     p.PaymentMethodName)).ToList()
                 : [];
 
+            var customerNonPayments = nonPaymentsByCustomer.TryGetValue(c.Id, out var cNp)
+                ? cNp
+                : [];
+
             result.Add(new AgendaCustomerData(
                 c.Id,
                 $"{c.FirstNames} {c.LastNames}".Trim(),
@@ -116,7 +131,8 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
                 c.RouteId,
                 locationData,
                 customerLoans,
-                customerPayments));
+                customerPayments,
+                customerNonPayments));
         }
 
         return result;
@@ -260,6 +276,144 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
         catch
         {
             return TimeZoneInfo.Utc;
+        }
+    }
+
+    public async Task<IReadOnlyCollection<NonPaymentReason>> GetNonPaymentReasonsAsync(
+        Guid tenantId,
+        bool includeInactive,
+        CancellationToken cancellationToken)
+    {
+        var query = dbContext.NonPaymentReasons
+            .Where(r => r.TenantId == tenantId);
+
+        if (!includeInactive)
+        {
+            query = query.Where(r => r.IsActive);
+        }
+
+        var reasons = await query
+            .OrderBy(r => r.DisplayOrder)
+            .ThenBy(r => r.Name)
+            .ToListAsync(cancellationToken);
+
+        if (reasons.Count == 0)
+        {
+            // Seed default reasons for this tenant
+            var now = DateTimeOffset.UtcNow;
+            var defaults = new List<NonPaymentReason>
+            {
+                new(Guid.NewGuid(), tenantId, "Cliente no se encuentra / ausente", "El cliente no estaba en su domicilio o lugar de trabajo.", true, 1, now),
+                new(Guid.NewGuid(), tenantId, "Sin dinero en el momento", "El cliente no cuenta con el dinero hoy.", true, 2, now),
+                new(Guid.NewGuid(), tenantId, "Problemas de salud o calamidad", "Situación de salud, emergencia o calamidad familiar.", true, 3, now),
+                new(Guid.NewGuid(), tenantId, "Fecha de pago reprogramada", "Se acordó una nueva fecha con el supervisor/cobrador.", true, 4, now),
+                new(Guid.NewGuid(), tenantId, "Rechaza realizar el pago", "El cliente se niega a realizar el pago pactado.", true, 5, now),
+                new(Guid.NewGuid(), tenantId, "Otro motivo", "Motivo no especificado en las categorías anteriores.", true, 6, now),
+            };
+
+            await dbContext.NonPaymentReasons.AddRangeAsync(defaults, cancellationToken);
+            await dbContext.SaveChangesAsync(cancellationToken);
+            return defaults;
+        }
+
+        return reasons;
+    }
+
+    public async Task<NonPaymentReason?> GetNonPaymentReasonByIdAsync(
+        Guid tenantId,
+        Guid reasonId,
+        CancellationToken cancellationToken)
+    {
+        return await dbContext.NonPaymentReasons
+            .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Id == reasonId, cancellationToken);
+    }
+
+    public async Task SaveNonPaymentReasonAsync(
+        NonPaymentReason reason,
+        CancellationToken cancellationToken)
+    {
+        var existing = await dbContext.NonPaymentReasons
+            .FirstOrDefaultAsync(r => r.TenantId == reason.TenantId && r.Id == reason.Id, cancellationToken);
+
+        if (existing is null)
+        {
+            await dbContext.NonPaymentReasons.AddAsync(reason, cancellationToken);
+        }
+        else
+        {
+            dbContext.Entry(existing).CurrentValues.SetValues(reason);
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(
+        Guid tenantId,
+        IReadOnlyCollection<Guid> accessibleRouteIds,
+        Guid? routeId,
+        DateOnly businessDate,
+        CancellationToken cancellationToken)
+    {
+        var targetRoutes = accessibleRouteIds;
+        if (routeId.HasValue)
+        {
+            if (!accessibleRouteIds.Contains(routeId.Value))
+            {
+                return [];
+            }
+            targetRoutes = [routeId.Value];
+        }
+
+        return await dbContext.CustomerNonPaymentRecords
+            .AsNoTracking()
+            .Where(r => r.TenantId == tenantId && targetRoutes.Contains(r.RouteId) && r.BusinessDate == businessDate)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task SaveNonPaymentRecordAsync(
+        CustomerNonPaymentRecord record,
+        CancellationToken cancellationToken)
+    {
+        // Remove existing record for same loan/customer on same date if present (upsert)
+        var query = dbContext.CustomerNonPaymentRecords
+            .Where(r => r.TenantId == record.TenantId && r.RouteId == record.RouteId && r.BusinessDate == record.BusinessDate && r.CustomerId == record.CustomerId);
+
+        if (record.LoanId.HasValue)
+        {
+            query = query.Where(r => r.LoanId == record.LoanId.Value || r.LoanId == null);
+        }
+
+        var existing = await query.ToListAsync(cancellationToken);
+        if (existing.Count > 0)
+        {
+            dbContext.CustomerNonPaymentRecords.RemoveRange(existing);
+        }
+
+        await dbContext.CustomerNonPaymentRecords.AddAsync(record, cancellationToken);
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    public async Task DeleteNonPaymentRecordAsync(
+        Guid tenantId,
+        Guid routeId,
+        Guid customerId,
+        Guid? loanId,
+        DateOnly businessDate,
+        CancellationToken cancellationToken)
+    {
+        var query = dbContext.CustomerNonPaymentRecords
+            .Where(r => r.TenantId == tenantId && r.RouteId == routeId && r.CustomerId == customerId && r.BusinessDate == businessDate);
+
+        if (loanId.HasValue)
+        {
+            query = query.Where(r => r.LoanId == loanId.Value || r.LoanId == null);
+        }
+
+        var existing = await query.ToListAsync(cancellationToken);
+        if (existing.Count > 0)
+        {
+            dbContext.CustomerNonPaymentRecords.RemoveRange(existing);
+            await dbContext.SaveChangesAsync(cancellationToken);
         }
     }
 }

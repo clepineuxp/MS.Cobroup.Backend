@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using MS.Cobroup.Backend.Domain.Agenda;
 using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.LoanExceptions;
 using MS.Cobroup.Backend.Domain.Loans;
@@ -34,6 +35,10 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
     public DbSet<RouteDayClosing> RouteDayClosings => Set<RouteDayClosing>();
 
     public DbSet<FinancialMovementAuditLog> FinancialMovementAuditLogs => Set<FinancialMovementAuditLog>();
+
+    public DbSet<NonPaymentReason> NonPaymentReasons => Set<NonPaymentReason>();
+
+    public DbSet<CustomerNonPaymentRecord> CustomerNonPaymentRecords => Set<CustomerNonPaymentRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -256,6 +261,25 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property(item => item.PerformedByUserRole).HasMaxLength(32).IsRequired();
             entity.HasIndex(item => new { item.TenantId, item.RouteId, item.TimestampUtc });
             entity.HasIndex(item => new { item.TenantId, item.EntityId });
+        });
+
+        modelBuilder.Entity<NonPaymentReason>(entity =>
+        {
+            entity.ToTable("agenda_non_payment_reasons");
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.Name).HasMaxLength(100).IsRequired();
+            entity.Property(r => r.Description).HasMaxLength(500);
+            entity.HasIndex(r => new { r.TenantId, r.IsActive, r.DisplayOrder });
+        });
+
+        modelBuilder.Entity<CustomerNonPaymentRecord>(entity =>
+        {
+            entity.ToTable("agenda_customer_non_payment_records");
+            entity.HasKey(r => r.Id);
+            entity.Property(r => r.ReasonName).HasMaxLength(100).IsRequired();
+            entity.Property(r => r.Observations).HasMaxLength(1000);
+            entity.HasIndex(r => new { r.TenantId, r.RouteId, r.BusinessDate });
+            entity.HasIndex(r => new { r.TenantId, r.CustomerId, r.BusinessDate });
         });
     }
 }
