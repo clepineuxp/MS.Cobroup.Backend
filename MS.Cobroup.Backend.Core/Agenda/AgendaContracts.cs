@@ -23,7 +23,9 @@ public sealed record AgendaItemDto(
     AgendaStatus Status,
     string StatusLabel,
     string MarkerColor,
-    decimal? DistanceKm);
+    decimal? DistanceKm,
+    decimal InstallmentAmount = 0m,
+    int OverdueInstallmentsCount = 0);
 
 public sealed record AgendaSummaryDto(
     DateOnly TargetDate,

@@ -121,6 +121,41 @@ public sealed class AgendaServiceTests
     }
 
     [Fact]
+    public async Task GetAgendaAsync_produces_distinct_items_per_active_loan_for_same_customer()
+    {
+        var custId = Guid.NewGuid();
+        var loan1Id = Guid.NewGuid();
+        var loan2Id = Guid.NewGuid();
+
+        var loan1 = new AgendaLoanData(
+            loan1Id, 100m, 0m, 100m, 1,
+            [new(Guid.NewGuid(), 1, today, 100m, 0m, InstallmentStatus.Pending)]);
+        var loan2 = new AgendaLoanData(
+            loan2Id, 200m, 0m, 200m, 2,
+            [new(Guid.NewGuid(), 1, today.AddDays(-2), 100m, 0m, InstallmentStatus.Pending)]);
+
+        var customer = new AgendaCustomerData(custId, "Multi Prestamo", "Comercio", "3009998877", routeId, null, [loan1, loan2], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var items = result.Data!.Items.ToList();
+        Assert.Equal(2, items.Count);
+
+        var itemLoan1 = items.Single(i => i.ActiveLoanId == loan1Id);
+        Assert.Equal(AgendaStatus.DueToday, itemLoan1.Status);
+        Assert.Equal(100m, itemLoan1.InstallmentAmount);
+
+        var itemLoan2 = items.Single(i => i.ActiveLoanId == loan2Id);
+        Assert.Equal(AgendaStatus.Overdue, itemLoan2.Status);
+        Assert.Equal(1, itemLoan2.OverdueInstallmentsCount);
+    }
+
+    [Fact]
     public async Task GetAgendaAsync_forbids_access_to_unauthorized_route()
     {
         var unauthorizedRouteId = Guid.NewGuid();

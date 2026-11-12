@@ -399,3 +399,12 @@
 - Verificación: 115/115 pruebas pasando en `MS.Cobroup.Backend.Core.Tests`. Build Release 0 errores, 0 advertencias.
 - Git: commit autorizado por el usuario ("hacer commitds de frontend y backend"); sin push, merge, tag, PR ni despliegue.
 
+### 2026-11-12 — Desglose de créditos activos en agenda diaria
+
+- Solicitud: desglose individual de préstamos activos por cliente en la agenda diaria y commit autorizado por el usuario ("hacer commit de lo actual").
+- Contratos y Dominio: `AgendaItemDto` incorpora `InstallmentAmount` y `OverdueInstallmentsCount`.
+- Servicio: `AgendaService` procesa cada crédito activo como ítem independiente en `GetAgendaAsync`, preservando la agregación por cliente para las ubicaciones cartográficas en `GetMapLocationsAsync`.
+- Verificación: 116/116 pruebas aprobadas en `MS.Cobroup.Backend.Core.Tests`. Compilación Release sin errores ni advertencias.
+- Git: commit autorizado por el usuario sobre rama `feature/frontend-adjustment-filters`; sin push, merge, tag ni PR.
+
+

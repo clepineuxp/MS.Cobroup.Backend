@@ -66,22 +66,38 @@ public sealed class AgendaService(
         var items = ProcessAgendaItems(rawCustomers, targetDate, null, null);
         var mapLocations = items
             .Where(i => i.Latitude.HasValue && i.Longitude.HasValue)
-            .Select(i => new CustomerMapLocationDto(
-                i.CustomerId,
-                i.CustomerName,
-                i.BusinessOrWorkName,
-                i.PrimaryPhone,
-                i.RouteId,
-                i.Latitude!.Value,
-                i.Longitude!.Value,
-                i.Address,
-                i.Alias,
-                i.ActiveLoanId,
-                i.LoanBalance,
-                i.OverdueAmount,
-                i.DueTodayAmount,
-                i.Status,
-                i.MarkerColor))
+            .GroupBy(i => i.CustomerId)
+            .Select(g =>
+            {
+                var first = g.First();
+                var worstStatus = g.Any(i => i.Status == AgendaStatus.Overdue) ? AgendaStatus.Overdue
+                    : g.Any(i => i.Status == AgendaStatus.DueToday) ? AgendaStatus.DueToday
+                    : g.Any(i => i.Status == AgendaStatus.Collected) ? AgendaStatus.Collected
+                    : AgendaStatus.UpToDate;
+                var markerColor = worstStatus switch
+                {
+                    AgendaStatus.Overdue => "#DC2626",
+                    AgendaStatus.DueToday => "#F59E0B",
+                    AgendaStatus.Collected => "#10B981",
+                    _ => "#3B82F6"
+                };
+                return new CustomerMapLocationDto(
+                    first.CustomerId,
+                    first.CustomerName,
+                    first.BusinessOrWorkName,
+                    first.PrimaryPhone,
+                    first.RouteId,
+                    first.Latitude!.Value,
+                    first.Longitude!.Value,
+                    first.Address,
+                    first.Alias,
+                    first.ActiveLoanId,
+                    g.Sum(i => i.LoanBalance),
+                    g.Sum(i => i.OverdueAmount),
+                    g.Sum(i => i.DueTodayAmount),
+                    worstStatus,
+                    markerColor);
+            })
             .ToList();
 
         return AgendaResult<IReadOnlyCollection<CustomerMapLocationDto>>.Success(mapLocations);
@@ -225,16 +241,54 @@ public sealed class AgendaService(
 
         foreach (var c in rawCustomers)
         {
-            decimal overdueAmount = 0m;
-            int daysOverdue = 0;
-            decimal dueTodayAmount = 0m;
-            decimal loanBalance = 0m;
-            Guid? activeLoanId = null;
+            decimal? distanceKm = null;
+            if (originLat.HasValue && originLon.HasValue && c.Location is not null)
+            {
+                distanceKm = HaversineGeoCalculator.CalculateDistanceKm(
+                    originLat.Value,
+                    originLon.Value,
+                    c.Location.Latitude,
+                    c.Location.Longitude);
+            }
+
+            if (c.ActiveLoans.Count == 0)
+            {
+                var collectedToday = c.PaymentsOnDate.Sum(p => p.Amount);
+                var status = collectedToday > 0m ? AgendaStatus.Collected : AgendaStatus.UpToDate;
+                var statusLabel = collectedToday > 0m ? "Cobrado hoy" : "Al día";
+                var markerColor = collectedToday > 0m ? "#10B981" : "#3B82F6";
+
+                items.Add(new AgendaItemDto(
+                    c.CustomerId,
+                    c.CustomerName,
+                    c.BusinessOrWorkName,
+                    c.PrimaryPhone,
+                    c.RouteId,
+                    c.Location?.Latitude,
+                    c.Location?.Longitude,
+                    c.Location?.Address,
+                    c.Location?.Alias,
+                    null,
+                    0m,
+                    0m,
+                    0,
+                    0m,
+                    collectedToday,
+                    status,
+                    statusLabel,
+                    markerColor,
+                    distanceKm,
+                    0m,
+                    0));
+                continue;
+            }
 
             foreach (var loan in c.ActiveLoans)
             {
-                activeLoanId ??= loan.LoanId;
-                loanBalance += loan.BalanceAmount;
+                decimal overdueAmount = 0m;
+                int daysOverdue = 0;
+                decimal dueTodayAmount = 0m;
+                int overdueCount = 0;
 
                 var overdueInstallments = loan.Installments
                     .Where(i => i.DueDate < targetDate && i.PaidAmount < i.ExpectedAmount)
@@ -242,7 +296,8 @@ public sealed class AgendaService(
 
                 if (overdueInstallments.Count > 0)
                 {
-                    overdueAmount += overdueInstallments.Sum(i => i.ExpectedAmount - i.PaidAmount);
+                    overdueAmount = overdueInstallments.Sum(i => i.ExpectedAmount - i.PaidAmount);
+                    overdueCount = overdueInstallments.Count;
                     var minDue = overdueInstallments.Min(i => i.DueDate);
                     var days = targetDate.DayNumber - minDue.DayNumber;
                     if (days > daysOverdue)
@@ -255,70 +310,72 @@ public sealed class AgendaService(
                     .Where(i => i.DueDate == targetDate && i.PaidAmount < i.ExpectedAmount)
                     .ToList();
 
-                dueTodayAmount += todayInstallments.Sum(i => i.ExpectedAmount - i.PaidAmount);
-            }
+                if (todayInstallments.Count > 0)
+                {
+                    dueTodayAmount = todayInstallments.Sum(i => i.ExpectedAmount - i.PaidAmount);
+                }
 
-            var collectedToday = c.PaymentsOnDate.Sum(p => p.Amount);
+                var regularInstallment = todayInstallments.FirstOrDefault()
+                    ?? overdueInstallments.FirstOrDefault()
+                    ?? loan.Installments.OrderBy(i => i.Number).FirstOrDefault();
 
-            AgendaStatus status;
-            string statusLabel;
-            string markerColor;
+                decimal installmentAmount = regularInstallment?.ExpectedAmount
+                    ?? (loan.InstallmentCount > 0 ? loan.TotalAmount / loan.InstallmentCount : 0m);
 
-            if (overdueAmount > 0m)
-            {
-                status = AgendaStatus.Overdue;
-                statusLabel = $"En mora ({daysOverdue}d)";
-                markerColor = "#DC2626"; // danger red
-            }
-            else if (dueTodayAmount > 0m)
-            {
-                status = AgendaStatus.DueToday;
-                statusLabel = "Cobro hoy";
-                markerColor = "#F59E0B"; // warning yellow/amber
-            }
-            else if (collectedToday > 0m)
-            {
-                status = AgendaStatus.Collected;
-                statusLabel = "Cobrado hoy";
-                markerColor = "#10B981"; // success green
-            }
-            else
-            {
-                status = AgendaStatus.UpToDate;
-                statusLabel = "Al día";
-                markerColor = "#3B82F6"; // info blue
-            }
+                var collectedForThisLoan = c.PaymentsOnDate.Where(p => p.LoanId == loan.LoanId).Sum(p => p.Amount);
 
-            decimal? distanceKm = null;
-            if (originLat.HasValue && originLon.HasValue && c.Location is not null)
-            {
-                distanceKm = HaversineGeoCalculator.CalculateDistanceKm(
-                    originLat.Value,
-                    originLon.Value,
-                    c.Location.Latitude,
-                    c.Location.Longitude);
-            }
+                AgendaStatus status;
+                string statusLabel;
+                string markerColor;
 
-            items.Add(new AgendaItemDto(
-                c.CustomerId,
-                c.CustomerName,
-                c.BusinessOrWorkName,
-                c.PrimaryPhone,
-                c.RouteId,
-                c.Location?.Latitude,
-                c.Location?.Longitude,
-                c.Location?.Address,
-                c.Location?.Alias,
-                activeLoanId,
-                loanBalance,
-                overdueAmount,
-                daysOverdue,
-                dueTodayAmount,
-                collectedToday,
-                status,
-                statusLabel,
-                markerColor,
-                distanceKm));
+                if (overdueAmount > 0m)
+                {
+                    status = AgendaStatus.Overdue;
+                    statusLabel = $"En mora ({daysOverdue}d)";
+                    markerColor = "#DC2626"; // danger red
+                }
+                else if (dueTodayAmount > 0m)
+                {
+                    status = AgendaStatus.DueToday;
+                    statusLabel = "Cobro hoy";
+                    markerColor = "#F59E0B"; // warning yellow/amber
+                }
+                else if (collectedForThisLoan > 0m)
+                {
+                    status = AgendaStatus.Collected;
+                    statusLabel = "Cobrado hoy";
+                    markerColor = "#10B981"; // success green
+                }
+                else
+                {
+                    status = AgendaStatus.UpToDate;
+                    statusLabel = "Al día";
+                    markerColor = "#3B82F6"; // info blue
+                }
+
+                items.Add(new AgendaItemDto(
+                    c.CustomerId,
+                    c.CustomerName,
+                    c.BusinessOrWorkName,
+                    c.PrimaryPhone,
+                    c.RouteId,
+                    c.Location?.Latitude,
+                    c.Location?.Longitude,
+                    c.Location?.Address,
+                    c.Location?.Alias,
+                    loan.LoanId,
+                    loan.BalanceAmount,
+                    overdueAmount,
+                    daysOverdue,
+                    dueTodayAmount,
+                    collectedForThisLoan,
+                    status,
+                    statusLabel,
+                    markerColor,
+                    distanceKm,
+                    installmentAmount,
+                    overdueCount));
+            }
         }
 
         return items;
