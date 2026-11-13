@@ -131,6 +131,7 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
     }
 
     [HttpPost("{customerId:guid}/evidence/upload")]
+    [HttpPost("{customerId:guid}/evidences/upload")]
     [Consumes("multipart/form-data")]
     public async Task<IActionResult> UploadEvidence(
         Guid customerId,
@@ -155,12 +156,13 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
             file.FileName,
             file.ContentType,
             stream,
-            cancellationToken);
+            cancellationToken, append: Request.Path.Value?.EndsWith("/evidences/upload", StringComparison.OrdinalIgnoreCase) == true);
         return ToActionResult(result);
     }
 
     [HttpGet("{customerId:guid}/evidence")]
-    public async Task<IActionResult> GetEvidence(Guid customerId, CancellationToken cancellationToken)
+    [HttpGet("{customerId:guid}/evidence/{slot:int}")]
+    public async Task<IActionResult> GetEvidence(Guid customerId, CancellationToken cancellationToken, int slot = 1)
     {
         if (!CustomerActorReader.TryRead(User, out var actor))
         {
@@ -169,7 +171,7 @@ public sealed class CustomersController(CustomerService customers) : ControllerB
 
         var result = await customers.GetEvidenceAsync(
             new GetCustomerQuery(actor, CustomerActorReader.ReadBearerToken(Request), customerId),
-            cancellationToken);
+            cancellationToken, slot);
         return result.Outcome switch
         {
             CustomerOutcome.Success => File(result.Content!, result.ContentType!, result.FileName),

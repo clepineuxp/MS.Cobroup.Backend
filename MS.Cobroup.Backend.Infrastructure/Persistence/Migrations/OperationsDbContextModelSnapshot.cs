@@ -239,6 +239,51 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.ToTable("customer_audit", "operations");
                 });
 
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerEvidence", b =>
+                {
+                    b.Property<Guid>("CustomerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Slot")
+                        .HasColumnType("integer");
+
+                    b.Property<long>("ByteSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FileHashSha256")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("StorageKey")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTimeOffset>("UploadedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("UploadedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("CustomerId", "Slot");
+
+                    b.ToTable("customer_additional_evidences", "operations", t =>
+                        {
+                            t.HasCheckConstraint("CK_CustomerEvidence_Slot", "\"Slot\" BETWEEN 2 AND 5");
+                        });
+                });
+
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerLocation", b =>
                 {
                     b.Property<Guid>("Id")
@@ -909,6 +954,15 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerEvidence", b =>
+                {
+                    b.HasOne("MS.Cobroup.Backend.Domain.Customers.Customer", null)
+                        .WithMany("AdditionalEvidences")
+                        .HasForeignKey("CustomerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.CustomerLocation", b =>
                 {
                     b.HasOne("MS.Cobroup.Backend.Domain.Customers.Customer", null)
@@ -991,6 +1045,8 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
 
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.Customer", b =>
                 {
+                    b.Navigation("AdditionalEvidences");
+
                     b.Navigation("Locations");
 
                     b.Navigation("Phones");

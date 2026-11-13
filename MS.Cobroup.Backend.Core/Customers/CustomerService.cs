@@ -221,7 +221,8 @@ public sealed class CustomerService(
         string fileName,
         string contentType,
         Stream content,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool append = false)
     {
         if (fileStorageService is null)
         {
@@ -245,7 +246,9 @@ public sealed class CustomerService(
             return CustomerResult.Forbidden();
         }
 
-        var previousStorageKey = customer.EvidenceStorageKey;
+        if (append && customer.EvidenceCount >= 5)
+            return CustomerResult.Invalid("Se permiten máximo 5 evidencias por cliente.");
+        var previousStorageKey = append ? null : customer.EvidenceStorageKey;
         StoredFileResult stored;
         try
         {
@@ -256,7 +259,9 @@ public sealed class CustomerService(
                 contentType,
                 content,
                 cancellationToken);
-            customer.ReplaceEvidence(
+            if (append) customer.AddEvidence(Path.GetFileName(fileName), stored.ContentType, stored.ByteSize,
+                stored.StorageKey, stored.FileHashSha256, actor.UserId, DateTimeOffset.UtcNow);
+            else customer.ReplaceEvidence(
                 Path.GetFileName(fileName),
                 stored.ContentType,
                 stored.ByteSize,
@@ -276,7 +281,8 @@ public sealed class CustomerService(
         }
 
         if (!string.IsNullOrWhiteSpace(previousStorageKey) &&
-            !string.Equals(previousStorageKey, stored.StorageKey, StringComparison.Ordinal))
+            !string.Equals(previousStorageKey, stored.StorageKey, StringComparison.Ordinal) &&
+            !customer.AdditionalEvidences.Any(e => e.StorageKey == previousStorageKey))
         {
             await fileStorageService.DeleteEvidenceAsync(actor.TenantId, previousStorageKey, cancellationToken);
         }
@@ -286,7 +292,8 @@ public sealed class CustomerService(
 
     public async Task<CustomerEvidenceResult> GetEvidenceAsync(
         GetCustomerQuery query,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        int slot = 1)
     {
         if (fileStorageService is null)
         {
@@ -310,20 +317,12 @@ public sealed class CustomerService(
             return CustomerEvidenceResult.NotFound();
         }
 
-        if (string.IsNullOrWhiteSpace(customer.EvidenceStorageKey) ||
-            string.IsNullOrWhiteSpace(customer.EvidenceFileName) ||
-            string.IsNullOrWhiteSpace(customer.EvidenceContentType))
-        {
-            return CustomerEvidenceResult.NotFound();
-        }
-
-        var stream = await fileStorageService.ReadEvidenceAsync(
-            query.Actor.TenantId,
-            customer.EvidenceStorageKey,
-            cancellationToken);
-        return stream is null
-            ? CustomerEvidenceResult.NotFound()
-            : CustomerEvidenceResult.Success(stream, customer.EvidenceFileName, customer.EvidenceContentType);
+        var evidence = ToEvidences(customer).FirstOrDefault(e => e.Slot == slot);
+        var key = slot == 1 ? customer.EvidenceStorageKey : customer.AdditionalEvidences.FirstOrDefault(e => e.Slot == slot)?.StorageKey;
+        if (evidence is null || key is null) return CustomerEvidenceResult.NotFound();
+        var stream = await fileStorageService.ReadEvidenceAsync(query.Actor.TenantId, key, cancellationToken);
+        return stream is null ? CustomerEvidenceResult.NotFound()
+            : CustomerEvidenceResult.Success(stream, evidence.FileName, evidence.ContentType);
     }
 
     private Task<RouteDirectoryResult> GetRoutesAsync(string accessToken, CancellationToken cancellationToken) =>
@@ -378,7 +377,17 @@ public sealed class CustomerService(
                 customer.EvidenceFileName,
                 customer.EvidenceContentType,
                 customer.EvidenceByteSize.Value,
-                customer.EvidenceUploadedAtUtc.Value));
+                customer.EvidenceUploadedAtUtc.Value),
+        ToEvidences(customer));
+
+    private static CustomerEvidenceDetails[] ToEvidences(Customer customer)
+    {
+        var result = new List<CustomerEvidenceDetails>();
+        if (customer.EvidenceFileName is not null && customer.EvidenceContentType is not null && customer.EvidenceByteSize is not null && customer.EvidenceUploadedAtUtc is not null)
+            result.Add(new(customer.EvidenceFileName, customer.EvidenceContentType, customer.EvidenceByteSize.Value, customer.EvidenceUploadedAtUtc.Value));
+        result.AddRange(customer.AdditionalEvidences.OrderBy(e => e.Slot).Select(e => new CustomerEvidenceDetails(e.FileName, e.ContentType, e.ByteSize, e.UploadedAtUtc, e.Slot)));
+        return result.ToArray();
+    }
 
     private static string SerializeAuditDetails(CustomerAuditSnapshot? before, Customer after) =>
         JsonSerializer.Serialize(new CustomerAuditChange(before, CustomerAuditSnapshot.From(after)));

@@ -443,3 +443,16 @@
 
 - Solicitud expresa: hacer commits del ajuste de plantillas con 0 % de interés, pruebas y registro asociado.
 - Se conservan las verificaciones previas; sin cambios funcionales adicionales. Commit local autorizado; sin push ni despliegue.
+
+
+### 2026-11-13 — Hasta cinco evidencias por cliente
+
+- Solicitud: permitir más de una evidencia al crear cliente y máximo cinco en total.
+- Modelo: conserva campos/evidencia legados como primera imagen; colección CustomerEvidence para slots 2–5. Migración 20261113061250_AddCustomerAdditionalEvidences agrega tabla relacionada con PK CustomerId/Slot y CHECK de slot 2–5, sin alterar evidencias previas. Concurrencia xmin del agregado y unicidad de slots impiden superar el límite con cargas simultáneas.
+- Contrato: CustomerDetails mantiene Evidence y añade Evidences con slot. Nuevo POST customers/{id}/evidences/upload agrega sin reemplazar; ruta singular conserva reemplazo legado. GET evidence/{slot} permite consultar cada imagen manteniendo tenant/ruta autorizados. Rechazo de sexta evidencia antes de almacenar; validación binaria existente permanece. Reemplazo legado no elimina archivo compartido con otra evidencia del cliente.
+- Validación: Core 138/138; repositorio EF dirigido 3/3 con guardado/recarga secuencial de cinco evidencias. API/dependencias compiladas en Release; modelo EF sin cambios pendientes. No se ejecutó suite completa de infraestructura ni concurrencia contra PostgreSQL real. Migración generada, NO aplicada. Binarios Debug bloqueados por Visual Studio/API activa; validación realizada en Release sin detener procesos del usuario.
+- Git: feature/cash-drawers-days, cambios nuevos sin commit, push ni despliegue.
+
+### 2026-11-13 — Commits autorizados de evidencias y ajustes operativos
+
+- Solicitud expresa: hacer commits de los cambios pendientes. Incluye hasta cinco evidencias por cliente con migración y pruebas; frontend incluye nombre de comprobante desde businessOrWorkName y separación de acciones de cobro con botón verde. Se conservan las verificaciones anteriores; migración generada sin aplicar. Sin push ni despliegue.

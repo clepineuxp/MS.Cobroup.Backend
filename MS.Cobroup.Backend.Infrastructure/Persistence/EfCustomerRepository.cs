@@ -7,8 +7,13 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence;
 
 public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICustomerRepository
 {
-    public Task SaveChangesAsync(CancellationToken cancellationToken) =>
-        dbContext.SaveChangesAsync(cancellationToken);
+    public async Task SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        try { await dbContext.SaveChangesAsync(cancellationToken); }
+        catch (DbUpdateConcurrencyException) { throw new InvalidOperationException("El cliente cambió. Recarga antes de agregar evidencias."); }
+        catch (DbUpdateException ex) when (ex.InnerException is PostgresException { SqlState: "23505" })
+        { throw new InvalidOperationException("Las evidencias cambiaron. Recarga el cliente antes de continuar."); }
+    }
     public async Task<CustomerSearchPage> SearchAsync(
         Guid tenantId,
         IReadOnlyCollection<Guid> accessibleRouteIds,
@@ -68,6 +73,7 @@ public sealed class EfCustomerRepository(OperationsDbContext dbContext) : ICusto
 
     public Task<Customer?> FindAsync(Guid tenantId, Guid customerId, CancellationToken cancellationToken) =>
         dbContext.Customers
+            .Include(customer => customer.AdditionalEvidences)
             .Include(customer => customer.Phones)
             .Include(customer => customer.Locations)
             .AsSplitQuery()
