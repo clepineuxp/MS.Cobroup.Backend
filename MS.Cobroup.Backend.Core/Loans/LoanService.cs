@@ -30,9 +30,9 @@ public sealed class LoanService(
             return LoanResult.Invalid("El monto principal debe ser positivo.");
         }
 
-        if (input.InterestRate <= 0)
+        if (input.InterestRate < 0)
         {
-            return LoanResult.Invalid("La tasa de porcentaje debe ser positiva.");
+            return LoanResult.Invalid("La tasa de porcentaje no puede ser negativa.");
         }
 
         if (input.InstallmentCount <= 0)
@@ -392,8 +392,8 @@ public sealed class LoanService(
 
         if (input.PrincipalAmount <= 0)
             return LoanResult.Invalid("El monto principal debe ser positivo.");
-        if (input.InterestRate <= 0)
-            return LoanResult.Invalid("La tasa de porcentaje debe ser positiva.");
+        if (input.InterestRate < 0)
+            return LoanResult.Invalid("La tasa de porcentaje no puede ser negativa.");
         if (input.InstallmentCount <= 0)
             return LoanResult.Invalid("El número de cuotas debe ser positivo.");
 

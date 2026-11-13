@@ -429,3 +429,17 @@
 
 
 
+
+
+### 2026-11-13 — Préstamos con plantilla de interés cero
+
+- Solicitud: validar frontend/backend para repartir el saldo entre las cuotas solicitadas sin intereses cuando la plantilla permite 0 %.
+- Cambio: preview, originación y edición aceptan tasa cero y rechazan negativos. Se conserva la validación de rango de plantilla al originar. El calculador existente produce interés 0, total igual al principal y ajuste del residuo en la última cuota.
+- Regresión: originación real del servicio con plantilla publicada de 0 % para 3 y 4 cuotas; controlador de preview verifica total exacto, residuo y rechazo de tasa negativa.
+- Verificación: Core 136/136 y pruebas dirigidas del controlador 3/3 aprobadas; API y dependencias compiladas. Sin cambios de esquema ni acceso a datos reales; no se ejecutó la suite completa de infraestructura ni prueba HTTP desplegada.
+- Git: cambios locales en feature/cash-drawers-days, sin commit, push ni despliegue.
+
+### 2026-11-13 — Commit autorizado de interés cero
+
+- Solicitud expresa: hacer commits del ajuste de plantillas con 0 % de interés, pruebas y registro asociado.
+- Se conservan las verificaciones previas; sin cambios funcionales adicionales. Commit local autorizado; sin push ni despliegue.
