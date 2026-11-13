@@ -42,7 +42,9 @@ public sealed record AgendaSummaryDto(
     int DueTodayCount,
     int CollectedCount,
     int UpToDateCount,
-    int WillNotPayCount = 0);
+    int WillNotPayCount = 0,
+    bool IsBoxPastDue = false,
+    DateOnly? BoxBusinessDate = null);
 
 public sealed record AgendaResponse(
     AgendaSummaryDto Summary,

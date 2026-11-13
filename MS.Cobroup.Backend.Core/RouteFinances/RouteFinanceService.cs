@@ -10,7 +10,10 @@ namespace MS.Cobroup.Backend.Core.RouteFinances;
 
 public sealed class RouteFinanceService(
     IRouteFinanceRepository repository,
-    IAdministrativeRouteDirectory routeDirectory)
+    IAdministrativeRouteDirectory routeDirectory,
+    IAgendaRepository? agendaRepository = null,
+    ILoanRepository? loanRepository = null,
+    ICustomerRepository? customerRepository = null)
 {
     public async Task<RouteFinanceResult> GetBalanceAsync(
         RouteFinanceCommand command,
@@ -106,18 +109,55 @@ public sealed class RouteFinanceService(
             return RouteFinanceResult.Invalid(boxValidation.ErrorMessage!);
         }
 
+        if (input.Type == RouteFinancialEntryType.Microinsurance)
+        {
+            if (!input.LoanId.HasValue || input.LoanId.Value == Guid.Empty)
+            {
+                return RouteFinanceResult.Invalid("Debe seleccionar el crédito al que se vinculará el microseguro.");
+            }
+
+            if (loanRepository is not null)
+            {
+                var loan = await loanRepository.FindAsync(command.Actor.TenantId, input.LoanId.Value, cancellationToken);
+                if (loan is null || loan.RouteId != input.RouteId)
+                {
+                    return RouteFinanceResult.Invalid("El crédito seleccionado no existe o no pertenece a esta ruta.");
+                }
+                if (loan.Status != Domain.Loans.LoanStatus.Active)
+                {
+                    return RouteFinanceResult.Invalid("Solo se puede vincular microseguros a créditos activos.");
+                }
+                loan.SetMicroinsuranceAmount(input.Amount);
+            }
+        }
+
         try
         {
+            var concept = input.Concept;
+            if (input.Type == RouteFinancialEntryType.Microinsurance && input.LoanId.HasValue && loanRepository is not null && customerRepository is not null)
+            {
+                var loan = await loanRepository.FindAsync(command.Actor.TenantId, input.LoanId.Value, cancellationToken);
+                if (loan is not null)
+                {
+                    var customer = await customerRepository.FindAsync(command.Actor.TenantId, loan.CustomerId, cancellationToken);
+                    if (customer is not null)
+                    {
+                        concept = $"Microseguro - {customer.FirstNames} {customer.LastNames}".Trim();
+                    }
+                }
+            }
+
             var entry = RouteFinancialEntry.Create(
                 command.Actor.TenantId,
                 input.RouteId,
                 input.Type,
-                input.Concept,
+                concept,
                 input.Description,
                 input.Amount,
                 command.Actor.UserId,
                 command.ActorDisplayName,
-                now);
+                now,
+                input.LoanId);
             await repository.AddEntryAsync(entry, cancellationToken);
 
             var audit = FinancialMovementAuditLog.Create(
@@ -184,8 +224,28 @@ public sealed class RouteFinanceService(
             var prevAmount = entry.Amount;
             var prevType = entry.Type;
 
+            if (loanRepository is not null)
+            {
+                var targetLoanId = input.LoanId ?? entry.LoanId;
+                if (targetLoanId.HasValue)
+                {
+                    var loan = await loanRepository.FindAsync(command.Actor.TenantId, targetLoanId.Value, cancellationToken);
+                    if (loan is not null)
+                    {
+                        if (input.Type == RouteFinancialEntryType.Microinsurance)
+                        {
+                            loan.SetMicroinsuranceAmount(input.Amount);
+                        }
+                        else if (prevType == RouteFinancialEntryType.Microinsurance)
+                        {
+                            loan.SetMicroinsuranceAmount(0m);
+                        }
+                    }
+                }
+            }
+
             entry.Update(input.Type, input.Concept, input.Description, input.Amount,
-                command.Actor.UserId, command.ActorDisplayName, now);
+                command.Actor.UserId, command.ActorDisplayName, now, input.LoanId ?? entry.LoanId);
 
             var audit = FinancialMovementAuditLog.Create(
                 command.Actor.TenantId,
@@ -243,6 +303,15 @@ public sealed class RouteFinanceService(
             return RouteFinanceResult.Forbidden();
         }
 
+        if (entry.Type == RouteFinancialEntryType.Microinsurance && entry.LoanId.HasValue && loanRepository is not null)
+        {
+            var loan = await loanRepository.FindAsync(command.Actor.TenantId, entry.LoanId.Value, cancellationToken);
+            if (loan is not null)
+            {
+                loan.SetMicroinsuranceAmount(0m);
+            }
+        }
+
         await repository.RemoveEntryAsync(entry, cancellationToken);
 
         var audit = FinancialMovementAuditLog.Create(
@@ -280,6 +349,25 @@ public sealed class RouteFinanceService(
         if (closing is null)
         {
             closing = await repository.FindDayClosingAsync(command.Actor.TenantId, routeId, localDate, cancellationToken);
+        }
+
+        var closingBusinessDate = closing?.BusinessDate ?? localDate;
+
+        if (agendaRepository is not null)
+        {
+            var rawCustomers = await agendaRepository.GetAgendaCustomersAsync(
+                command.Actor.TenantId,
+                [routeId],
+                routeId,
+                closingBusinessDate,
+                cancellationToken);
+            var agendaItems = Agenda.AgendaService.ProcessAgendaItems(rawCustomers, closingBusinessDate, null, null);
+            var unrecordedPending = agendaItems.Count(i => i.Status is Domain.Agenda.AgendaStatus.Overdue or Domain.Agenda.AgendaStatus.DueToday);
+            if (unrecordedPending > 0)
+            {
+                return RouteFinanceResult.Invalid(
+                    $"No es posible cerrar la caja. Debe registrar el motivo de no pago para todos los créditos pendientes (faltan {unrecordedPending} por registrar).");
+            }
         }
 
         if (closing is null)
@@ -619,10 +707,66 @@ public sealed class RouteFinanceService(
         return route is null ? (null, RouteFinanceResult.Forbidden()) : (route, null);
     }
 
+    public async Task<RouteFinanceResult> GetEligibleLoansForMicroinsuranceAsync(
+        RouteFinanceCommand command,
+        Guid routeId,
+        CancellationToken cancellationToken)
+    {
+        var routeResult = await FindAccessibleRouteAsync(command.AccessToken, routeId, cancellationToken);
+        if (routeResult.Failure is not null) return routeResult.Failure;
+
+        if (loanRepository is null || customerRepository is null)
+        {
+            return new RouteFinanceResult(RouteFinanceOutcome.Success, EligibleLoans: []);
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var businessTimeZone = ResolveBusinessTimeZone(routeResult.Route!.TimeZoneId);
+        var localDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(now, businessTimeZone).DateTime);
+
+        var closing = await repository.FindActiveOpenClosingAsync(command.Actor.TenantId, routeId, cancellationToken);
+        var targetDate = closing?.BusinessDate ?? localDate;
+
+        var fromUtc = new DateTimeOffset(targetDate.ToDateTime(TimeOnly.MinValue), businessTimeZone.GetUtcOffset(targetDate.ToDateTime(TimeOnly.MinValue))).ToUniversalTime();
+        var toUtc = new DateTimeOffset(targetDate.AddDays(1).ToDateTime(TimeOnly.MinValue).AddTicks(-1), businessTimeZone.GetUtcOffset(targetDate.ToDateTime(TimeOnly.MinValue))).ToUniversalTime();
+
+        var searchPage = await loanRepository.SearchAsync(
+            command.Actor.TenantId,
+            [routeId],
+            routeId,
+            null,
+            Domain.Loans.LoanStatus.Active,
+            1,
+            200,
+            cancellationToken);
+
+        var eligible = searchPage.Items
+            .Where(l => l.CreatedAtUtc >= fromUtc && l.CreatedAtUtc <= toUtc)
+            .ToList();
+
+        var eligibleLoans = new List<EligibleLoanForMicroinsuranceDto>();
+        foreach (var l in eligible)
+        {
+            var loanEntity = await loanRepository.FindAsync(command.Actor.TenantId, l.Id, cancellationToken);
+            if (loanEntity is not null && loanEntity.MicroinsuranceAmount <= 0m)
+            {
+                eligibleLoans.Add(new EligibleLoanForMicroinsuranceDto(
+                    l.Id,
+                    l.CustomerId,
+                    l.CustomerName,
+                    l.PrincipalAmount,
+                    l.CreatedAtUtc));
+            }
+        }
+
+        return new RouteFinanceResult(RouteFinanceOutcome.Success, EligibleLoans: eligibleLoans);
+    }
+
     private static IReadOnlyCollection<RouteFinancialEntryType>? ParseSection(string section) =>
         section.Trim().ToLowerInvariant() switch
         {
-            "income-investments" => [RouteFinancialEntryType.Income, RouteFinancialEntryType.Investment],
+            "income-investments" => [RouteFinancialEntryType.Income, RouteFinancialEntryType.Investment, RouteFinancialEntryType.Microinsurance],
+            "microinsurance" or "microinsurances" => [RouteFinancialEntryType.Microinsurance],
             "expenses" => [RouteFinancialEntryType.Expense],
             "all" => Enum.GetValues<RouteFinancialEntryType>(),
             _ => null
@@ -647,7 +791,8 @@ public sealed class RouteFinanceService(
             entry.UpdatedByUserId,
             entry.UpdatedByDisplayName,
             entry.UpdatedAtUtc,
-            !isDayClosed && CanEdit(entry, actor, now, timeZoneId));
+            !isDayClosed && CanEdit(entry, actor, now, timeZoneId),
+            entry.LoanId);
 
     private static bool CanEdit(
         RouteFinancialEntry entry,

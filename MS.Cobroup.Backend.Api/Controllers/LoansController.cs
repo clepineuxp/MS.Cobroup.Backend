@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using MS.Cobroup.Backend.Api.Security;
@@ -22,6 +23,11 @@ public sealed class LoansController(LoanService service) : ControllerBase
             return Unauthorized();
         }
 
+        var displayName = User.FindFirstValue(ClaimTypes.Name)
+            ?? User.FindFirstValue("name")
+            ?? User.FindFirstValue("preferred_username")
+            ?? actor.UserId.ToString("D");
+
         var result = await service.OriginateAsync(
             new OriginateLoanCommand(
                 actor,
@@ -36,7 +42,9 @@ public sealed class LoansController(LoanService service) : ControllerBase
                     request.LoanTemplateId,
                     request.LoanTemplateVersion,
                     request.ExceptionRequestId,
-                    request.StartDate)),
+                    request.StartDate,
+                    request.MicroinsuranceAmount),
+                displayName),
             cancellationToken);
 
         return result.Outcome is LoanOutcome.Created
@@ -172,6 +180,11 @@ public sealed class LoansController(LoanService service) : ControllerBase
             return Unauthorized();
         }
 
+        var displayName = User.FindFirstValue(ClaimTypes.Name)
+            ?? User.FindFirstValue("name")
+            ?? User.FindFirstValue("preferred_username")
+            ?? actor.UserId.ToString("D");
+
         var result = await service.UpdateLoanAsync(
             id,
             new OriginateLoanCommand(
@@ -187,7 +200,9 @@ public sealed class LoansController(LoanService service) : ControllerBase
                     request.LoanTemplateId,
                     request.LoanTemplateVersion,
                     request.ExceptionRequestId,
-                    request.StartDate)),
+                    request.StartDate,
+                    request.MicroinsuranceAmount),
+                displayName),
             cancellationToken);
 
         return MapResult(result);
@@ -236,7 +251,8 @@ public sealed record OriginateLoanRequest(
     Guid? LoanTemplateId,
     int? LoanTemplateVersion,
     Guid? ExceptionRequestId,
-    DateOnly StartDate);
+    DateOnly StartDate,
+    decimal? MicroinsuranceAmount = 0m);
 
 public sealed record PreviewLoanScheduleRequest(
     decimal PrincipalAmount,

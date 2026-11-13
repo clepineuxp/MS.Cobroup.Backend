@@ -21,7 +21,7 @@ public sealed class EfRouteFinanceRepository(OperationsDbContext dbContext) : IR
         var incomeInvestments = await dbContext.RouteFinancialEntries
             .AsNoTracking()
             .Where(item => item.TenantId == tenantId && item.RouteId == routeId
-                && (item.Type == RouteFinancialEntryType.Income || item.Type == RouteFinancialEntryType.Investment))
+                && (item.Type == RouteFinancialEntryType.Income || item.Type == RouteFinancialEntryType.Investment || item.Type == RouteFinancialEntryType.Microinsurance))
             .SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0m;
         var expenses = await dbContext.RouteFinancialEntries
             .AsNoTracking()
@@ -49,7 +49,7 @@ public sealed class EfRouteFinanceRepository(OperationsDbContext dbContext) : IR
             .AsNoTracking()
             .Where(item => item.TenantId == tenantId && item.RouteId == routeId
                 && item.CreatedAtUtc >= sinceUtc
-                && (item.Type == RouteFinancialEntryType.Income || item.Type == RouteFinancialEntryType.Investment))
+                && (item.Type == RouteFinancialEntryType.Income || item.Type == RouteFinancialEntryType.Investment || item.Type == RouteFinancialEntryType.Microinsurance))
             .SumAsync(item => (decimal?)item.Amount, cancellationToken) ?? 0m;
         var expenses = await dbContext.RouteFinancialEntries
             .AsNoTracking()

@@ -51,6 +51,11 @@ public interface IAgendaRepository
         Guid? loanId,
         DateOnly businessDate,
         CancellationToken cancellationToken);
+
+    Task<DateOnly?> GetActiveCashBoxBusinessDateAsync(
+        Guid tenantId,
+        Guid routeId,
+        CancellationToken cancellationToken);
 }
 
 public sealed record AgendaLocationData(

@@ -1,8 +1,10 @@
 using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Core.RouteFinances;
+using MS.Cobroup.Backend.Domain.Agenda;
 using MS.Cobroup.Backend.Domain.Authorization;
 using MS.Cobroup.Backend.Domain.Interfaces.Directories;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
+using MS.Cobroup.Backend.Domain.Loans;
 using MS.Cobroup.Backend.Domain.RouteFinances;
 
 namespace MS.Cobroup.Backend.Core.Tests.RouteFinances;
@@ -215,6 +217,54 @@ public sealed class RouteFinanceServiceTests
         Assert.False(statusOpen.ClosingStatus.IsClosed);
     }
 
+    [Fact]
+    public async Task CloseDay_Fails_WhenPendingLoansHaveNoNonPaymentRecord()
+    {
+        var repository = new FakeRepository();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        repository.Closing = RouteDayClosing.CreateOpen(tenantId, routeId, today, userId, "Cobrador", DateTimeOffset.UtcNow);
+
+        var agendaRepo = new FakeAgendaRepository();
+        var loanId = Guid.NewGuid();
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today, 50m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 50m, 0m, 50m, 1, installments, PaymentFrequency.Daily);
+        agendaRepo.Customers = [new AgendaCustomerData(Guid.NewGuid(), "Cliente Pendiente", null, "3001234567", routeId, null, [loan], [])];
+
+        var service = new RouteFinanceService(repository, new FakeDirectory(routeId), agendaRepo);
+        var result = await service.CloseDayAsync(Command(UserRole.Collector), routeId, CancellationToken.None);
+
+        Assert.Equal(RouteFinanceOutcome.Invalid, result.Outcome);
+        Assert.Contains("Debe registrar el motivo de no pago para todos los créditos pendientes", result.Error);
+    }
+
+    [Fact]
+    public async Task CloseDay_Succeeds_WhenAllPendingLoansHaveNonPaymentRecord()
+    {
+        var repository = new FakeRepository();
+        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        repository.Closing = RouteDayClosing.CreateOpen(tenantId, routeId, today, userId, "Cobrador", DateTimeOffset.UtcNow);
+
+        var agendaRepo = new FakeAgendaRepository();
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today, 50m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 50m, 0m, 50m, 1, installments, PaymentFrequency.Daily);
+        var nonPayment = new CustomerNonPaymentRecord(Guid.NewGuid(), tenantId, routeId, customerId, loanId, today, Guid.NewGuid(), "No estaba", null, userId, DateTimeOffset.UtcNow);
+        agendaRepo.Customers = [new AgendaCustomerData(customerId, "Cliente Marcado", null, "3001234567", routeId, null, [loan], [], [nonPayment])];
+
+        var service = new RouteFinanceService(repository, new FakeDirectory(routeId), agendaRepo);
+        var result = await service.CloseDayAsync(Command(UserRole.Collector), routeId, CancellationToken.None);
+
+        Assert.Equal(RouteFinanceOutcome.Success, result.Outcome);
+        Assert.True(result.ClosingStatus!.IsClosed);
+    }
+
     private RouteFinanceService CreateService(FakeRepository repository) =>
         new(repository, new FakeDirectory(routeId));
 
@@ -249,5 +299,24 @@ public sealed class RouteFinanceServiceTests
         public Task AddAuditLogAsync(FinancialMovementAuditLog auditLog, CancellationToken cancellationToken) { Audits.Add(auditLog); return Task.CompletedTask; }
         public Task<IReadOnlyCollection<FinancialMovementAuditLog>> ListAuditLogsAsync(Guid tenantId, Guid? routeId, DateTimeOffset? fromTimestampUtc, DateTimeOffset? toTimestampUtc, CancellationToken cancellationToken) => Task.FromResult<IReadOnlyCollection<FinancialMovementAuditLog>>(Audits);
         public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+    }
+
+    private sealed class FakeAgendaRepository : IAgendaRepository
+    {
+        public List<AgendaCustomerData> Customers { get; set; } = [];
+        public Task<IReadOnlyCollection<AgendaCustomerData>> GetAgendaCustomersAsync(Guid tenantId, IReadOnlyCollection<Guid> accessibleRouteIds, Guid? routeId, DateOnly targetDate, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyCollection<AgendaCustomerData>>(Customers);
+        public Task<IReadOnlyCollection<RoutePortfolioData>> GetRoutePortfolioDataAsync(Guid tenantId, IReadOnlyCollection<Guid> accessibleRouteIds, Guid? routeId, DateOnly targetDate, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyCollection<RoutePortfolioData>>([]);
+        public Task<IReadOnlyCollection<NonPaymentReason>> GetNonPaymentReasonsAsync(Guid tenantId, bool includeInactive, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyCollection<NonPaymentReason>>([]);
+        public Task<NonPaymentReason?> GetNonPaymentReasonByIdAsync(Guid tenantId, Guid reasonId, CancellationToken cancellationToken) =>
+            Task.FromResult<NonPaymentReason?>(null);
+        public Task SaveNonPaymentReasonAsync(NonPaymentReason reason, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(Guid tenantId, IReadOnlyCollection<Guid> accessibleRouteIds, Guid? routeId, DateOnly businessDate, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyCollection<CustomerNonPaymentRecord>>([]);
+        public Task SaveNonPaymentRecordAsync(CustomerNonPaymentRecord record, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task DeleteNonPaymentRecordAsync(Guid tenantId, Guid routeId, Guid customerId, Guid? loanId, DateOnly businessDate, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<DateOnly?> GetActiveCashBoxBusinessDateAsync(Guid tenantId, Guid routeId, CancellationToken cancellationToken) => Task.FromResult<DateOnly?>(null);
     }
 }

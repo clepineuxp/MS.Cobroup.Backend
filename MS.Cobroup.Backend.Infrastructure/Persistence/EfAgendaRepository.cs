@@ -380,7 +380,11 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
 
         if (record.LoanId.HasValue)
         {
-            query = query.Where(r => r.LoanId == record.LoanId.Value || r.LoanId == null);
+            query = query.Where(r => r.LoanId == record.LoanId.Value);
+        }
+        else
+        {
+            query = query.Where(r => r.LoanId == null);
         }
 
         var existing = await query.ToListAsync(cancellationToken);
@@ -415,5 +419,18 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
             dbContext.CustomerNonPaymentRecords.RemoveRange(existing);
             await dbContext.SaveChangesAsync(cancellationToken);
         }
+    }
+
+    public async Task<DateOnly?> GetActiveCashBoxBusinessDateAsync(
+        Guid tenantId,
+        Guid routeId,
+        CancellationToken cancellationToken)
+    {
+        var activeBox = await dbContext.RouteDayClosings
+            .AsNoTracking()
+            .Where(b => b.TenantId == tenantId && b.RouteId == routeId && !b.IsClosed)
+            .OrderByDescending(b => b.BusinessDate)
+            .FirstOrDefaultAsync(cancellationToken);
+        return activeBox?.BusinessDate;
     }
 }

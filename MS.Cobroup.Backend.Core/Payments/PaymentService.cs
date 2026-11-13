@@ -15,7 +15,8 @@ public sealed class PaymentService(
     IAdministrativeRouteDirectory routeDirectory,
     IOperationalPaymentMethodDirectory paymentMethodDirectory,
     MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService fileStorageService,
-    IRouteFinanceRepository financeRepository)
+    IRouteFinanceRepository financeRepository,
+    IAgendaRepository? agendaRepository = null)
 {
     private static readonly HashSet<string> AllowedMimeTypes =
     [
@@ -204,6 +205,18 @@ public sealed class PaymentService(
             nowUtc);
         await financeRepository.AddAuditLogAsync(audit, cancellationToken);
         await financeRepository.SaveChangesAsync(cancellationToken);
+
+        if (agendaRepository is not null)
+        {
+            var paymentDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(nowUtc, routeTz).DateTime);
+            await agendaRepository.DeleteNonPaymentRecordAsync(
+                actor.TenantId,
+                loan.RouteId,
+                loan.CustomerId,
+                loan.Id,
+                paymentDate,
+                cancellationToken);
+        }
 
         return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan.Terms.BalanceAmount, loan.Status));
     }

@@ -37,14 +37,23 @@ public sealed record RouteFinancialEntryDetails(
     Guid UpdatedByUserId,
     string UpdatedByDisplayName,
     DateTimeOffset UpdatedAtUtc,
-    bool CanEdit);
+    bool CanEdit,
+    Guid? LoanId = null);
 
 public sealed record SaveRouteFinancialEntryInput(
     Guid RouteId,
     RouteFinancialEntryType Type,
     string Concept,
     string? Description,
-    decimal Amount);
+    decimal Amount,
+    Guid? LoanId = null);
+
+public sealed record EligibleLoanForMicroinsuranceDto(
+    Guid LoanId,
+    Guid CustomerId,
+    string CustomerName,
+    decimal PrincipalAmount,
+    DateTimeOffset CreatedAtUtc);
 
 public sealed record DayClosingStatusDetails(
     Guid RouteId,
@@ -90,6 +99,7 @@ public sealed record RouteFinanceResult(
     RouteFinancialEntryDetails? Entry = null,
     DayClosingStatusDetails? ClosingStatus = null,
     IReadOnlyCollection<FinancialMovementAuditLogDetails>? AuditLogs = null,
+    IReadOnlyCollection<EligibleLoanForMicroinsuranceDto>? EligibleLoans = null,
     string? Error = null)
 {
     public static RouteFinanceResult Invalid(string error) => new(RouteFinanceOutcome.Invalid, Error: error);

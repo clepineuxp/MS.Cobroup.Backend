@@ -52,8 +52,18 @@ public sealed class Loan
     public Guid CreatedByUserId { get; private set; }
     public UserRole CreatedByRole { get; private set; }
     public DateTimeOffset CreatedAtUtc { get; private set; }
+    public decimal MicroinsuranceAmount { get; private set; }
 
     public IReadOnlyCollection<Installment> Installments => installments.AsReadOnly();
+
+    public void SetMicroinsuranceAmount(decimal amount)
+    {
+        if (amount < 0m)
+        {
+            throw new ArgumentOutOfRangeException(nameof(amount), "El monto de microseguro no puede ser negativo.");
+        }
+        MicroinsuranceAmount = amount;
+    }
 
     public static Loan Originate(
         Guid tenantId,
