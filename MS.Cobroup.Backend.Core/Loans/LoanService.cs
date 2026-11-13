@@ -78,10 +78,18 @@ public sealed class LoanService(
         var localNow = TimeZoneInfo.ConvertTime(now, routeTz);
         var localDate = DateOnly.FromDateTime(localNow.DateTime);
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(command.Actor.TenantId, customer.RouteId, localDate, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            command.Actor.TenantId,
+            accessibleRoute,
+            command.Actor.UserId,
+            command.Actor.UserId.ToString("D"),
+            now,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible crear nuevos préstamos.");
+            return LoanResult.Conflict(boxValidation.ErrorMessage!);
         }
 
         // Check 1 Loan per customer per day in route
@@ -237,6 +245,12 @@ public sealed class LoanService(
             now,
             installments);
 
+        var microAmount = input.MicroinsuranceAmount ?? 0m;
+        if (microAmount > 0m)
+        {
+            loan.SetMicroinsuranceAmount(microAmount);
+        }
+
         // Atomic Check-and-Insert with route quota and exception consumption
         var outcome = await loanRepository.TryAddAsync(
             loan,
@@ -260,6 +274,46 @@ public sealed class LoanService(
         }
 
         var customerName = $"{customer.FirstNames} {customer.LastNames}".Trim();
+        if (string.IsNullOrWhiteSpace(customerName))
+        {
+            customerName = "Cliente";
+        }
+
+        var actorDisplayName = !string.IsNullOrWhiteSpace(command.ActorDisplayName)
+            ? command.ActorDisplayName
+            : command.Actor.UserId.ToString("D");
+
+        if (microAmount > 0m)
+        {
+            var microConcept = $"Microseguro - {customerName}".Trim();
+            var microEntry = RouteFinancialEntry.Create(
+                command.Actor.TenantId,
+                customer.RouteId,
+                RouteFinancialEntryType.Microinsurance,
+                microConcept,
+                $"Microseguro vinculado al crédito {loan.Id}",
+                microAmount,
+                command.Actor.UserId,
+                actorDisplayName,
+                now,
+                loan.Id);
+            await financeRepository.AddEntryAsync(microEntry, cancellationToken);
+
+            var microAudit = FinancialMovementAuditLog.Create(
+                command.Actor.TenantId,
+                customer.RouteId,
+                FinancialMovementEntityType.RouteFinancialEntry,
+                microEntry.Id,
+                FinancialMovementAuditAction.Created,
+                microEntry.Concept,
+                microEntry.Amount,
+                $"Creado {microEntry.Type}: '{microEntry.Concept}'. Monto: {microEntry.Amount:N2}",
+                command.Actor.UserId,
+                actorDisplayName,
+                command.Actor.Role.ToString(),
+                now);
+            await financeRepository.AddAuditLogAsync(microAudit, cancellationToken);
+        }
 
         var audit = FinancialMovementAuditLog.Create(
             command.Actor.TenantId,
@@ -271,7 +325,7 @@ public sealed class LoanService(
             loan.Terms.PrincipalAmount,
             $"Préstamo otorgado a cliente {customerName} por valor de {loan.Terms.PrincipalAmount:N2}. Total: {loan.Terms.TotalAmount:N2}.",
             command.Actor.UserId,
-            command.Actor.UserId.ToString("D"),
+            actorDisplayName,
             command.Actor.Role.ToString(),
             now);
         await financeRepository.AddAuditLogAsync(audit, cancellationToken);
@@ -309,10 +363,18 @@ public sealed class LoanService(
         var localNow = TimeZoneInfo.ConvertTime(nowUtc, routeTz);
         var localDate = DateOnly.FromDateTime(localNow.DateTime);
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(command.Actor.TenantId, loan.RouteId, localDate, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            command.Actor.TenantId,
+            accessibleRoute,
+            command.Actor.UserId,
+            command.Actor.UserId.ToString("D"),
+            nowUtc,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible modificar préstamos.");
+            return LoanResult.Conflict(boxValidation.ErrorMessage!);
         }
 
         // Rule: Collector can only modify within same business day
@@ -365,11 +427,64 @@ public sealed class LoanService(
                 i.DueDate,
                 i.ExpectedAmount)).ToList();
 
-        loan.UpdateTerms(termsSnapshot, installments);
-        await loanRepository.SaveChangesAsync(cancellationToken);
-
         var customer = await customerRepository.FindAsync(command.Actor.TenantId, loan.CustomerId, cancellationToken);
         var customerName = customer is not null ? $"{customer.FirstNames} {customer.LastNames}".Trim() : string.Empty;
+        if (string.IsNullOrWhiteSpace(customerName)) customerName = "Cliente";
+
+        var actorDisplayName = !string.IsNullOrWhiteSpace(command.ActorDisplayName)
+            ? command.ActorDisplayName
+            : command.Actor.UserId.ToString("D");
+
+        loan.UpdateTerms(termsSnapshot, installments);
+
+        var prevMicroAmount = loan.MicroinsuranceAmount;
+        var newMicroAmount = input.MicroinsuranceAmount ?? 0m;
+        if (prevMicroAmount != newMicroAmount)
+        {
+            loan.SetMicroinsuranceAmount(newMicroAmount);
+            var existingEntries = await financeRepository.ListEntriesAsync(
+                command.Actor.TenantId,
+                loan.RouteId,
+                [RouteFinancialEntryType.Microinsurance],
+                cancellationToken);
+            var linkedEntry = existingEntries.FirstOrDefault(e => e.LoanId == loan.Id);
+
+            if (newMicroAmount > 0m)
+            {
+                if (linkedEntry is not null)
+                {
+                    linkedEntry.Update(
+                        RouteFinancialEntryType.Microinsurance,
+                        $"Microseguro - {customerName}".Trim(),
+                        $"Microseguro vinculado al crédito {loan.Id}",
+                        newMicroAmount,
+                        command.Actor.UserId,
+                        actorDisplayName,
+                        nowUtc);
+                }
+                else
+                {
+                    var newEntry = RouteFinancialEntry.Create(
+                        command.Actor.TenantId,
+                        loan.RouteId,
+                        RouteFinancialEntryType.Microinsurance,
+                        $"Microseguro - {customerName}".Trim(),
+                        $"Microseguro vinculado al crédito {loan.Id}",
+                        newMicroAmount,
+                        command.Actor.UserId,
+                        actorDisplayName,
+                        nowUtc,
+                        loan.Id);
+                    await financeRepository.AddEntryAsync(newEntry, cancellationToken);
+                }
+            }
+            else if (linkedEntry is not null)
+            {
+                await financeRepository.RemoveEntryAsync(linkedEntry, cancellationToken);
+            }
+        }
+
+        await loanRepository.SaveChangesAsync(cancellationToken);
 
         var audit = FinancialMovementAuditLog.Create(
             command.Actor.TenantId,
@@ -381,7 +496,7 @@ public sealed class LoanService(
             loan.Terms.PrincipalAmount,
             $"Préstamo actualizado para cliente {customerName}. Nuevo monto: {loan.Terms.PrincipalAmount:N2}, total: {loan.Terms.TotalAmount:N2}.",
             command.Actor.UserId,
-            command.Actor.UserId.ToString("D"),
+            actorDisplayName,
             command.Actor.Role.ToString(),
             nowUtc);
         await financeRepository.AddAuditLogAsync(audit, cancellationToken);
@@ -419,10 +534,18 @@ public sealed class LoanService(
         var localNow = TimeZoneInfo.ConvertTime(nowUtc, routeTz);
         var localDate = DateOnly.FromDateTime(localNow.DateTime);
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(actor.TenantId, loan.RouteId, localDate, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            actor.TenantId,
+            accessibleRoute,
+            actor.UserId,
+            actor.UserId.ToString("D"),
+            nowUtc,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return LoanResult.Conflict("El día se encuentra cerrado para esta ruta. No es posible eliminar préstamos.");
+            return LoanResult.Conflict(boxValidation.ErrorMessage!);
         }
 
         var loanLocalCreated = TimeZoneInfo.ConvertTime(loan.CreatedAtUtc, routeTz);
@@ -439,6 +562,17 @@ public sealed class LoanService(
 
         var customer = await customerRepository.FindAsync(actor.TenantId, loan.CustomerId, cancellationToken);
         var customerName = customer is not null ? $"{customer.FirstNames} {customer.LastNames}".Trim() : string.Empty;
+
+        var existingEntries = await financeRepository.ListEntriesAsync(
+            actor.TenantId,
+            loan.RouteId,
+            [RouteFinancialEntryType.Microinsurance],
+            cancellationToken);
+        var linkedEntry = existingEntries.FirstOrDefault(e => e.LoanId == loan.Id);
+        if (linkedEntry is not null)
+        {
+            await financeRepository.RemoveEntryAsync(linkedEntry, cancellationToken);
+        }
 
         await loanRepository.DeleteLoanAsync(loan, cancellationToken);
 
@@ -581,7 +715,8 @@ public sealed class LoanService(
                 i.DueDate,
                 i.ExpectedAmount,
                 i.PaidAmount,
-                i.Status)).OrderBy(i => i.Number).ToArray());
+                i.Status)).OrderBy(i => i.Number).ToArray(),
+            loan.MicroinsuranceAmount);
 
     private static LoanResult MapFailure(RouteDirectoryOutcome outcome) => outcome switch
     {

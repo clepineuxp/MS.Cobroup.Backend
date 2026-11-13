@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Mvc;
+using MS.Cobroup.Backend.Domain.Authorization;
 using MS.Cobroup.Backend.Domain.Interfaces.Directories;
 
 namespace MS.Cobroup.Backend.Api.Security;
@@ -9,6 +10,14 @@ public sealed class MachineAuthorizedAttribute : Attribute, IAsyncActionFilter
 {
     public async Task OnActionExecutionAsync(ActionExecutingContext context, ActionExecutionDelegate next)
     {
+        // Las peticiones del front administrativo o con rol Admin no requieren registro de máquina
+        if (context.HttpContext.Request.Headers.ContainsKey("X-Administrative-Request") ||
+            (CustomerActorReader.TryRead(context.HttpContext.User, out var actor) && actor.Role == UserRole.Admin))
+        {
+            await next();
+            return;
+        }
+
         var machineId = context.HttpContext.Request.Headers["X-Machine-Id"].FirstOrDefault();
         var routeValue = context.HttpContext.Request.Headers["X-Route-Id"].FirstOrDefault();
         if (!Guid.TryParse(routeValue, out var routeId) || string.IsNullOrWhiteSpace(machineId))

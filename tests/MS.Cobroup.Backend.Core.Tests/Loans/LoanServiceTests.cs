@@ -7,6 +7,7 @@ using MS.Cobroup.Backend.Domain.Customers;
 using MS.Cobroup.Backend.Domain.Interfaces.Repositories;
 using MS.Cobroup.Backend.Domain.LoanExceptions;
 using MS.Cobroup.Backend.Domain.Loans;
+using MS.Cobroup.Backend.Domain.RouteFinances;
 
 namespace MS.Cobroup.Backend.Core.Tests.Loans;
 
@@ -71,6 +72,50 @@ public sealed class LoanServiceTests
         Assert.Equal(920m, result.Loan.TotalAmount);
         Assert.Equal(20, result.Loan.Installments.Count);
         Assert.Equal(920m, result.Loan.Installments.Sum(i => i.ExpectedAmount));
+    }
+
+    [Fact]
+    public async Task OriginateAsync_with_microinsurance_creates_linked_microinsurance_entry()
+    {
+        var tenantId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var collectorId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+
+        routeDirectory.Routes = [new(routeId, "Ruta Centro", null, "Cobrador 1", 10, 10)];
+        templateDirectory.Templates = [new(templateId, "Plantilla 20D", "Desc", "Standard", "Published", 1, 20, 1000m, [10m, 15m, 20m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
+
+        var customer = CreateCustomer(tenantId, routeId);
+        customerRepository.Add(customer);
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var input = new OriginateLoanInput(
+            customer.Id,
+            800m,
+            15m,
+            PaymentFrequency.Daily,
+            null,
+            20,
+            templateId,
+            1,
+            null,
+            new DateOnly(2026, 11, 1),
+            50000m);
+
+        var result = await service.OriginateAsync(
+            new OriginateLoanCommand(actor, "token", input, "Cobrador 1"),
+            CancellationToken.None);
+
+        Assert.Equal(LoanOutcome.Created, result.Outcome);
+        Assert.NotNull(result.Loan);
+        Assert.Equal(50000m, result.Loan.MicroinsuranceAmount);
+
+        var microEntry = Assert.Single(financeRepository.Entries);
+        Assert.Equal(RouteFinancialEntryType.Microinsurance, microEntry.Type);
+        Assert.Equal($"Microseguro - {customer.FirstNames} {customer.LastNames}".Trim(), microEntry.Concept);
+        Assert.Equal(50000m, microEntry.Amount);
+        Assert.Equal(result.Loan.Id, microEntry.LoanId);
+        Assert.Equal("Cobrador 1", microEntry.CreatedByDisplayName);
     }
 
     [Fact]
@@ -412,7 +457,7 @@ public sealed class LoanServiceTests
     }
 
     [Fact]
-    public async Task OriginateAsync_fails_when_day_is_closed()
+    public async Task OriginateAsync_opens_box_when_day_is_closed()
     {
         var tenantId = Guid.NewGuid();
         var routeId = Guid.NewGuid();
@@ -436,8 +481,9 @@ public sealed class LoanServiceTests
 
         var result = await service.OriginateAsync(new OriginateLoanCommand(actor, "token", input), CancellationToken.None);
 
-        Assert.Equal(LoanOutcome.Conflict, result.Outcome);
-        Assert.Contains("El día se encuentra cerrado", result.ErrorMessage);
+        Assert.Equal(LoanOutcome.Created, result.Outcome);
+        var closing = Assert.Single(financeRepository.DayClosings);
+        Assert.False(closing.IsClosed);
     }
 
     [Fact]

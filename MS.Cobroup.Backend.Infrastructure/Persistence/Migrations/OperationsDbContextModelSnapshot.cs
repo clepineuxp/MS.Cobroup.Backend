@@ -471,6 +471,12 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<int?>("LoanTemplateVersion")
                         .HasColumnType("integer");
 
+                    b.Property<decimal>("MicroinsuranceAmount")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)")
+                        .HasDefaultValue(0m);
+
                     b.Property<Guid>("RouteId")
                         .HasColumnType("uuid");
 
@@ -786,6 +792,16 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                     b.Property<bool>("IsClosed")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTimeOffset?>("OpenedAtUtc")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("OpenedByDisplayName")
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)");
+
+                    b.Property<Guid?>("OpenedByUserId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTimeOffset?>("ReopenedAtUtc")
                         .HasColumnType("timestamp with time zone");
 
@@ -840,6 +856,9 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<Guid?>("LoanId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("RouteId")
                         .HasColumnType("uuid");
 
@@ -869,6 +888,10 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                         .HasColumnName("xmin");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("LoanId");
+
+                    b.HasIndex("TenantId", "LoanId");
 
                     b.HasIndex("TenantId", "RouteId", "CreatedAtUtc");
 
@@ -956,6 +979,14 @@ namespace MS.Cobroup.Backend.Infrastructure.Persistence.Migrations
                         .HasForeignKey("PaymentId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("MS.Cobroup.Backend.Domain.RouteFinances.RouteFinancialEntry", b =>
+                {
+                    b.HasOne("MS.Cobroup.Backend.Domain.Loans.Loan", null)
+                        .WithMany()
+                        .HasForeignKey("LoanId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("MS.Cobroup.Backend.Domain.Customers.Customer", b =>

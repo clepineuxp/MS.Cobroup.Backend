@@ -15,7 +15,8 @@ public sealed record OriginateLoanInput(
     Guid? LoanTemplateId,
     int? LoanTemplateVersion,
     Guid? ExceptionRequestId,
-    DateOnly StartDate);
+    DateOnly StartDate,
+    decimal? MicroinsuranceAmount = 0m);
 
 public sealed record InstallmentDetails(
     Guid Id,
@@ -49,12 +50,14 @@ public sealed record LoanDetails(
     Guid CreatedByUserId,
     UserRole CreatedByRole,
     DateTimeOffset CreatedAtUtc,
-    IReadOnlyCollection<InstallmentDetails> Installments);
+    IReadOnlyCollection<InstallmentDetails> Installments,
+    decimal MicroinsuranceAmount = 0m);
 
 public sealed record OriginateLoanCommand(
     CustomerActor Actor,
     string AccessToken,
-    OriginateLoanInput Input);
+    OriginateLoanInput Input,
+    string? ActorDisplayName = null);
 
 public sealed record GetLoanQuery(
     CustomerActor Actor,

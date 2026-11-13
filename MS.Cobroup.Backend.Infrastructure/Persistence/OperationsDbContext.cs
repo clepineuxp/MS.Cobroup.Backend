@@ -137,6 +137,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
             entity.Property(loan => loan.Status).HasConversion<string>().HasMaxLength(20).IsRequired();
             entity.Property(loan => loan.CreatedByRole).HasConversion<string>().HasMaxLength(20).IsRequired();
+            entity.Property(loan => loan.MicroinsuranceAmount).HasPrecision(18, 2).HasDefaultValue(0m).IsRequired();
             entity.ComplexProperty(loan => loan.Terms, terms =>
             {
                 terms.Property(t => t.PrincipalAmount).HasPrecision(18, 2).IsRequired();
@@ -235,8 +236,14 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.Property(item => item.CreatedByDisplayName).HasMaxLength(160).IsRequired();
             entity.Property(item => item.UpdatedByDisplayName).HasMaxLength(160).IsRequired();
             entity.Property<uint>("xmin").HasColumnType("xid").IsRowVersion();
+            entity.Property(item => item.LoanId);
             entity.HasIndex(item => new { item.TenantId, item.RouteId, item.CreatedAtUtc });
             entity.HasIndex(item => new { item.TenantId, item.RouteId, item.Type });
+            entity.HasIndex(item => new { item.TenantId, item.LoanId });
+            entity.HasOne<Loan>()
+                .WithMany()
+                .HasForeignKey(item => item.LoanId)
+                .OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<RouteDayClosing>(entity =>
@@ -245,6 +252,7 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
             entity.HasKey(item => item.Id);
             entity.Property(item => item.ClosedByDisplayName).HasMaxLength(160);
             entity.Property(item => item.ReopenedByDisplayName).HasMaxLength(160);
+            entity.Property(item => item.OpenedByDisplayName).HasMaxLength(160);
             entity.HasIndex(item => new { item.TenantId, item.RouteId, item.BusinessDate }).IsUnique();
         });
 

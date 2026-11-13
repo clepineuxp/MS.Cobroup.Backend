@@ -76,6 +76,16 @@ public sealed class RouteFinancesController(RouteFinanceService service) : Contr
         return Map(await service.ReopenDayAsync(command, routeId, cancellationToken));
     }
 
+    [HttpPost("{routeId:guid}/reopen-box")]
+    public async Task<IActionResult> ReopenBox(
+        Guid routeId,
+        [FromQuery] DateOnly? businessDate,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.ReopenBoxAsync(command, routeId, businessDate, cancellationToken));
+    }
+
     [HttpGet("{routeId:guid}/closing-status")]
     public async Task<IActionResult> GetDayClosingStatus(
         Guid routeId,
@@ -94,6 +104,15 @@ public sealed class RouteFinancesController(RouteFinanceService service) : Contr
     {
         if (!TryReadCommand(out var command)) return Unauthorized();
         return Map(await service.ListAuditTraceAsync(command, routeId, fromUtc, toUtc, cancellationToken));
+    }
+
+    [HttpGet("routes/{routeId:guid}/microinsurance-eligible-loans")]
+    public async Task<IActionResult> GetEligibleLoansForMicroinsurance(
+        Guid routeId,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadCommand(out var command)) return Unauthorized();
+        return Map(await service.GetEligibleLoansForMicroinsuranceAsync(command, routeId, cancellationToken));
     }
 
     private bool TryReadCommand(out RouteFinanceCommand command)
@@ -117,6 +136,7 @@ public sealed class RouteFinancesController(RouteFinanceService service) : Contr
         RouteFinanceOutcome.Success when result.Entries is not null => Ok(result.Entries),
         RouteFinanceOutcome.Success when result.ClosingStatus is not null => Ok(result.ClosingStatus),
         RouteFinanceOutcome.Success when result.AuditLogs is not null => Ok(result.AuditLogs),
+        RouteFinanceOutcome.Success when result.EligibleLoans is not null => Ok(result.EligibleLoans),
         RouteFinanceOutcome.Success when result.Entry is not null => Ok(result.Entry),
         RouteFinanceOutcome.Success => NoContent(),
         RouteFinanceOutcome.Created => Created($"/api/operations/v1/route-finances/entries/{result.Entry!.Id}", result.Entry),
@@ -134,7 +154,8 @@ public sealed record SaveRouteFinancialEntryRequest(
     RouteFinancialEntryType Type,
     string Concept,
     string? Description,
-    decimal Amount)
+    decimal Amount,
+    Guid? LoanId = null)
 {
-    public SaveRouteFinancialEntryInput ToInput() => new(RouteId, Type, Concept, Description, Amount);
+    public SaveRouteFinancialEntryInput ToInput() => new(RouteId, Type, Concept, Description, Amount, LoanId);
 }

@@ -412,7 +412,7 @@ public sealed class AgendaServiceTests
     }
 
     [Fact]
-    public async Task GetAgendaAsync_weekly_uptodate_loan_does_not_appear_in_daily_matrix_until_mora_or_due_date()
+    public async Task GetAgendaAsync_weekly_uptodate_loan_appears_as_uptodate_with_zero_due_today()
     {
         var customerId = Guid.NewGuid();
         var loanId = Guid.NewGuid();
@@ -431,7 +431,100 @@ public sealed class AgendaServiceTests
         var result = await service.GetAgendaAsync(query, CancellationToken.None);
 
         Assert.Equal(AgendaOutcome.Success, result.Outcome);
-        Assert.Empty(result.Data!.Items);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.UpToDate, item.Status);
+        Assert.Equal(0m, item.DueTodayAmount);
+        Assert.Equal(0m, item.OverdueAmount);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_newly_created_daily_loan_with_first_installment_tomorrow_appears_as_uptodate()
+    {
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today.AddDays(1), 50m, 0m, InstallmentStatus.Pending),
+            new(Guid.NewGuid(), 2, today.AddDays(2), 50m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 100m, 0m, 100m, 2, installments, PaymentFrequency.Daily);
+        var customer = new AgendaCustomerData(customerId, "Cliente Nuevo", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var query = new GetAgendaQuery(actor, "token", routeId, today, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.UpToDate, item.Status);
+        Assert.Equal(0m, item.DueTodayAmount);
+        Assert.Equal(0m, item.OverdueAmount);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_WhenActiveOpenBoxExistsFromYesterday_UsesBoxDateAndSetsIsBoxPastDue()
+    {
+        var yesterday = today.AddDays(-1);
+        agendaRepository.ActiveCashBoxDate = yesterday;
+
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, yesterday, 50m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 50m, 0m, 50m, 1, installments, PaymentFrequency.Daily);
+        var customer = new AgendaCustomerData(customerId, "Cliente Ayer", null, "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        // query with null TargetDate to use open box date
+        var query = new GetAgendaQuery(actor, "token", routeId, null, null, null);
+
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        Assert.True(result.Data!.Summary.IsBoxPastDue);
+        Assert.Equal(yesterday, result.Data.Summary.TargetDate);
+    }
+
+    [Fact]
+    public async Task GetAgendaAsync_WhenActiveOpenBoxExists_InstallmentDueOnBoxDate_IsDueTodayNotOverdue_EvenIfClientSentNextDay()
+    {
+        // Arrange
+        // Active open cash box is for today (e.g. 2026-10-21)
+        agendaRepository.ActiveCashBoxDate = today;
+
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today, 51429m, 0m, InstallmentStatus.Pending),
+            new(Guid.NewGuid(), 2, today.AddDays(1), 51429m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 102858m, 0m, 102858m, 2, installments, PaymentFrequency.Daily);
+        var customer = new AgendaCustomerData(customerId, "Jhonny Mecanico", "negocio", "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        // Even if client sent tomorrow (e.g. UTC date skew at night 11pm), the active open cash box governs
+        var query = new GetAgendaQuery(actor, "token", routeId, today.AddDays(1), null, null);
+
+        // Act
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        // Assert
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.DueToday, item.Status);
+        Assert.Equal("Cobro hoy", item.StatusLabel);
+        Assert.Equal(0m, item.OverdueAmount);
+        Assert.Equal(0, item.DaysOverdue);
+        Assert.Equal(51429m, item.DueTodayAmount);
+        Assert.Equal(today, result.Data.Summary.TargetDate);
     }
 
     [Fact]
@@ -572,6 +665,14 @@ internal sealed class InMemoryAgendaRepository : IAgendaRepository
         NonPaymentRecords.RemoveAll(r => r.TenantId == tenantId && r.RouteId == routeId && r.CustomerId == customerId && r.BusinessDate == businessDate && (loanId == null || r.LoanId == loanId || r.LoanId == null));
         return Task.CompletedTask;
     }
+
+    public DateOnly? ActiveCashBoxDate { get; set; }
+
+    public Task<DateOnly?> GetActiveCashBoxBusinessDateAsync(
+        Guid tenantId,
+        Guid routeId,
+        CancellationToken cancellationToken) =>
+        Task.FromResult(ActiveCashBoxDate);
 }
 
 internal sealed class FakeRouteDirectory : IAdministrativeRouteDirectory

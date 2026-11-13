@@ -17,7 +17,10 @@ public sealed class RouteDayClosing
         string? closedByDisplayName,
         DateTimeOffset? reopenedAtUtc,
         Guid? reopenedByUserId,
-        string? reopenedByDisplayName)
+        string? reopenedByDisplayName,
+        DateTimeOffset? openedAtUtc = null,
+        Guid? openedByUserId = null,
+        string? openedByDisplayName = null)
     {
         Id = id;
         TenantId = tenantId;
@@ -30,6 +33,9 @@ public sealed class RouteDayClosing
         ReopenedAtUtc = reopenedAtUtc;
         ReopenedByUserId = reopenedByUserId;
         ReopenedByDisplayName = reopenedByDisplayName;
+        OpenedAtUtc = openedAtUtc;
+        OpenedByUserId = openedByUserId;
+        OpenedByDisplayName = openedByDisplayName;
     }
 
     public Guid Id { get; private set; }
@@ -54,6 +60,35 @@ public sealed class RouteDayClosing
 
     public string? ReopenedByDisplayName { get; private set; }
 
+    public DateTimeOffset? OpenedAtUtc { get; private set; }
+
+    public Guid? OpenedByUserId { get; private set; }
+
+    public string? OpenedByDisplayName { get; private set; }
+
+    public static RouteDayClosing CreateOpen(
+        Guid tenantId,
+        Guid routeId,
+        DateOnly businessDate,
+        Guid openedByUserId,
+        string openedByDisplayName,
+        DateTimeOffset openedAtUtc) =>
+        new(
+            Guid.NewGuid(),
+            tenantId,
+            routeId,
+            businessDate,
+            isClosed: false,
+            closedAtUtc: null,
+            closedByUserId: null,
+            closedByDisplayName: null,
+            reopenedAtUtc: null,
+            reopenedByUserId: null,
+            reopenedByDisplayName: null,
+            openedAtUtc: openedAtUtc,
+            openedByUserId: openedByUserId,
+            openedByDisplayName: openedByDisplayName);
+
     public static RouteDayClosing CreateClosed(
         Guid tenantId,
         Guid routeId,
@@ -72,7 +107,10 @@ public sealed class RouteDayClosing
             closedByDisplayName: closedByDisplayName,
             reopenedAtUtc: null,
             reopenedByUserId: null,
-            reopenedByDisplayName: null);
+            reopenedByDisplayName: null,
+            openedAtUtc: closedAtUtc,
+            openedByUserId: closedByUserId,
+            openedByDisplayName: closedByDisplayName);
 
     public void Close(Guid closedByUserId, string closedByDisplayName, DateTimeOffset closedAtUtc)
     {
@@ -88,5 +126,9 @@ public sealed class RouteDayClosing
         ReopenedByUserId = reopenedByUserId;
         ReopenedByDisplayName = reopenedByDisplayName;
         ReopenedAtUtc = reopenedAtUtc;
+        OpenedAtUtc ??= reopenedAtUtc;
     }
+
+    public string GetBoxName(string routeName) =>
+        IsClosed ? $"{routeName} | Caja Cerrada" : $"{routeName} | {BusinessDate:yyyy-MM-dd}";
 }

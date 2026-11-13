@@ -15,7 +15,8 @@ public sealed class PaymentService(
     IAdministrativeRouteDirectory routeDirectory,
     IOperationalPaymentMethodDirectory paymentMethodDirectory,
     MS.Cobroup.Backend.Domain.Interfaces.Services.IFileStorageService fileStorageService,
-    IRouteFinanceRepository financeRepository)
+    IRouteFinanceRepository financeRepository,
+    IAgendaRepository? agendaRepository = null)
 {
     private static readonly HashSet<string> AllowedMimeTypes =
     [
@@ -71,10 +72,18 @@ public sealed class PaymentService(
         var localNow = TimeZoneInfo.ConvertTime(nowUtc, routeTz);
         var localDate = DateOnly.FromDateTime(localNow.DateTime);
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(actor.TenantId, loan.RouteId, localDate, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            actor.TenantId,
+            accessibleRoute,
+            actor.UserId,
+            actor.UserId.ToString("D"),
+            nowUtc,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return PaymentResult.Failure("El día se encuentra cerrado para esta ruta. No es posible registrar nuevos cobros.", PaymentErrorType.Conflict);
+            return PaymentResult.Failure(boxValidation.ErrorMessage!, PaymentErrorType.Conflict);
         }
 
         // Check 1 Collection per customer per day in route
@@ -197,6 +206,18 @@ public sealed class PaymentService(
         await financeRepository.AddAuditLogAsync(audit, cancellationToken);
         await financeRepository.SaveChangesAsync(cancellationToken);
 
+        if (agendaRepository is not null)
+        {
+            var paymentDate = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(nowUtc, routeTz).DateTime);
+            await agendaRepository.DeleteNonPaymentRecordAsync(
+                actor.TenantId,
+                loan.RouteId,
+                loan.CustomerId,
+                loan.Id,
+                paymentDate,
+                cancellationToken);
+        }
+
         return PaymentResult.Ok(PaymentDetails.FromDomain(payment, loan.Terms.BalanceAmount, loan.Status));
     }
 
@@ -241,10 +262,18 @@ public sealed class PaymentService(
             return PaymentResult.Failure("Solo se pueden modificar cobros registrados dentro del mismo día.", PaymentErrorType.ValidationError);
         }
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(actor.TenantId, payment.RouteId, localNow, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            actor.TenantId,
+            accessibleRoute,
+            actor.UserId,
+            actor.UserId.ToString("D"),
+            nowUtc,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return PaymentResult.Failure("El día se encuentra cerrado para esta ruta. No es posible modificar cobros.", PaymentErrorType.Conflict);
+            return PaymentResult.Failure(boxValidation.ErrorMessage!, PaymentErrorType.Conflict);
         }
 
         if (input.Amount <= 0)
@@ -377,10 +406,18 @@ public sealed class PaymentService(
             return PaymentResult.Failure("Solo se pueden eliminar cobros registrados dentro del mismo día.", PaymentErrorType.ValidationError);
         }
 
-        var dayClosing = await financeRepository.FindDayClosingAsync(actor.TenantId, payment.RouteId, localNow, cancellationToken);
-        if (dayClosing?.IsClosed ?? false)
+        var boxValidation = await RouteFinanceService.ValidateCashBoxForMovementAsync(
+            financeRepository,
+            actor.TenantId,
+            accessibleRoute,
+            actor.UserId,
+            actor.UserId.ToString("D"),
+            nowUtc,
+            cancellationToken);
+
+        if (!boxValidation.IsAllowed)
         {
-            return PaymentResult.Failure("El día se encuentra cerrado para esta ruta. No es posible eliminar cobros.", PaymentErrorType.Conflict);
+            return PaymentResult.Failure(boxValidation.ErrorMessage!, PaymentErrorType.Conflict);
         }
 
         foreach (var alloc in payment.Allocations)

@@ -16,7 +16,8 @@ public sealed class RouteFinancialEntry
         decimal amount,
         Guid createdByUserId,
         string createdByDisplayName,
-        DateTimeOffset createdAtUtc)
+        DateTimeOffset createdAtUtc,
+        Guid? loanId = null)
     {
         Id = id;
         TenantId = RequireId(tenantId, nameof(tenantId));
@@ -31,11 +32,13 @@ public sealed class RouteFinancialEntry
         UpdatedAtUtc = createdAtUtc;
         UpdatedByUserId = createdByUserId;
         UpdatedByDisplayName = CreatedByDisplayName;
+        LoanId = loanId;
     }
 
     public Guid Id { get; private set; }
     public Guid TenantId { get; private set; }
     public Guid RouteId { get; private set; }
+    public Guid? LoanId { get; private set; }
     public RouteFinancialEntryType Type { get; private set; }
     public string Concept { get; private set; } = string.Empty;
     public string? Description { get; private set; }
@@ -56,9 +59,10 @@ public sealed class RouteFinancialEntry
         decimal amount,
         Guid createdByUserId,
         string createdByDisplayName,
-        DateTimeOffset createdAtUtc) =>
+        DateTimeOffset createdAtUtc,
+        Guid? loanId = null) =>
         new(Guid.NewGuid(), tenantId, routeId, type, concept, description, amount,
-            createdByUserId, createdByDisplayName, createdAtUtc);
+            createdByUserId, createdByDisplayName, createdAtUtc, loanId);
 
     public void Update(
         RouteFinancialEntryType type,
@@ -67,7 +71,8 @@ public sealed class RouteFinancialEntry
         decimal amount,
         Guid updatedByUserId,
         string updatedByDisplayName,
-        DateTimeOffset updatedAtUtc)
+        DateTimeOffset updatedAtUtc,
+        Guid? loanId = null)
     {
         Type = RequireType(type);
         Concept = RequireText(concept, nameof(concept), 160);
@@ -76,6 +81,10 @@ public sealed class RouteFinancialEntry
         UpdatedByUserId = RequireId(updatedByUserId, nameof(updatedByUserId));
         UpdatedByDisplayName = RequireText(updatedByDisplayName, nameof(updatedByDisplayName), 160);
         UpdatedAtUtc = updatedAtUtc;
+        if (loanId.HasValue)
+        {
+            LoanId = loanId.Value;
+        }
     }
 
     private static Guid RequireId(Guid value, string name) =>

@@ -264,7 +264,7 @@ public sealed class PaymentServiceTests
     }
 
     [Fact]
-    public async Task RegisterPaymentAsync_fails_when_day_is_closed()
+    public async Task RegisterPaymentAsync_opens_box_when_day_is_closed()
     {
         var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
         var loan = CreateSampleLoan(1000m, 2);
@@ -278,9 +278,9 @@ public sealed class PaymentServiceTests
         var input = new RegisterPaymentInput(loan.Id, 100m, paymentMethodId, null, "P-CLOSED-DAY");
         var result = await service.RegisterPaymentAsync(actor, input, "token", CancellationToken.None);
 
-        Assert.False(result.Success);
-        Assert.Equal(PaymentErrorType.Conflict, result.ErrorType);
-        Assert.Contains("El día se encuentra cerrado", result.ErrorMessage);
+        Assert.True(result.Success);
+        var closing = Assert.Single(financeRepository.DayClosings);
+        Assert.False(closing.IsClosed);
     }
 
     [Fact]

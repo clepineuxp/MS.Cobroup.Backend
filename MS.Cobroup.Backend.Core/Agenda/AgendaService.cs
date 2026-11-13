@@ -26,7 +26,36 @@ public sealed class AgendaService(
             return AgendaResult<AgendaResponse>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
         }
 
-        var targetDate = query.TargetDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly? activeBoxDate = null;
+        if (query.RouteId.HasValue)
+        {
+            activeBoxDate = await agendaRepository.GetActiveCashBoxBusinessDateAsync(
+                query.Actor.TenantId,
+                query.RouteId.Value,
+                cancellationToken);
+        }
+
+        var targetRoute = query.RouteId.HasValue ? routesResult.Routes.FirstOrDefault(r => r.Id == query.RouteId.Value) : null;
+        var timeZoneId = targetRoute?.TimeZoneId ?? "America/Bogota";
+        var businessTimeZone = RouteFinances.RouteFinanceService.ResolveBusinessTimeZone(timeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
+
+        DateOnly targetDate;
+        if (activeBoxDate.HasValue)
+        {
+            targetDate = activeBoxDate.Value;
+        }
+        else if (query.TargetDate.HasValue)
+        {
+            targetDate = query.TargetDate.Value;
+        }
+        else
+        {
+            targetDate = localToday;
+        }
+
+        var isBoxPastDue = activeBoxDate.HasValue && activeBoxDate.Value < localToday && targetDate == activeBoxDate.Value;
+
         var rawCustomers = await agendaRepository.GetAgendaCustomersAsync(
             query.Actor.TenantId,
             accessibleRouteIds,
@@ -35,7 +64,7 @@ public sealed class AgendaService(
             cancellationToken);
 
         var items = ProcessAgendaItems(rawCustomers, targetDate, query.OriginLatitude, query.OriginLongitude);
-        var summary = BuildSummary(items, targetDate, query.RouteId);
+        var summary = BuildSummary(items, targetDate, query.RouteId, isBoxPastDue, activeBoxDate);
 
         return AgendaResult<AgendaResponse>.Success(new AgendaResponse(summary, items));
     }
@@ -56,7 +85,21 @@ public sealed class AgendaService(
             return AgendaResult<IReadOnlyCollection<CustomerMapLocationDto>>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
         }
 
-        var targetDate = query.TargetDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly? activeBoxDate = null;
+        if (query.RouteId.HasValue)
+        {
+            activeBoxDate = await agendaRepository.GetActiveCashBoxBusinessDateAsync(
+                query.Actor.TenantId,
+                query.RouteId.Value,
+                cancellationToken);
+        }
+
+        var targetRoute = query.RouteId.HasValue ? routesResult.Routes.FirstOrDefault(r => r.Id == query.RouteId.Value) : null;
+        var timeZoneId = targetRoute?.TimeZoneId ?? "America/Bogota";
+        var businessTimeZone = RouteFinances.RouteFinanceService.ResolveBusinessTimeZone(timeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
+
+        var targetDate = activeBoxDate ?? query.TargetDate ?? localToday;
         var rawCustomers = await agendaRepository.GetAgendaCustomersAsync(
             query.Actor.TenantId,
             accessibleRouteIds,
@@ -121,7 +164,21 @@ public sealed class AgendaService(
             return AgendaResult<AgendaResponse>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
         }
 
-        var targetDate = input.TargetDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly? activeBoxDate = null;
+        if (input.RouteId.HasValue)
+        {
+            activeBoxDate = await agendaRepository.GetActiveCashBoxBusinessDateAsync(
+                command.Actor.TenantId,
+                input.RouteId.Value,
+                cancellationToken);
+        }
+
+        var targetRoute = input.RouteId.HasValue ? routesResult.Routes.FirstOrDefault(r => r.Id == input.RouteId.Value) : null;
+        var timeZoneId = targetRoute?.TimeZoneId ?? "America/Bogota";
+        var businessTimeZone = RouteFinances.RouteFinanceService.ResolveBusinessTimeZone(timeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
+
+        var targetDate = activeBoxDate ?? input.TargetDate ?? localToday;
         var rawCustomers = await agendaRepository.GetAgendaCustomersAsync(
             command.Actor.TenantId,
             accessibleRouteIds,
@@ -152,7 +209,21 @@ public sealed class AgendaService(
             return AgendaResult<PortfolioAnalyticsResponse>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
         }
 
-        var targetDate = query.TargetDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly? activeBoxDate = null;
+        if (query.RouteId.HasValue)
+        {
+            activeBoxDate = await agendaRepository.GetActiveCashBoxBusinessDateAsync(
+                query.Actor.TenantId,
+                query.RouteId.Value,
+                cancellationToken);
+        }
+
+        var targetRoute = query.RouteId.HasValue ? routesResult.Routes.FirstOrDefault(r => r.Id == query.RouteId.Value) : null;
+        var timeZoneId = targetRoute?.TimeZoneId ?? "America/Bogota";
+        var businessTimeZone = RouteFinances.RouteFinanceService.ResolveBusinessTimeZone(timeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
+
+        var targetDate = activeBoxDate ?? query.TargetDate ?? localToday;
         var routeData = await agendaRepository.GetRoutePortfolioDataAsync(
             query.Actor.TenantId,
             accessibleRouteIds,
@@ -232,7 +303,7 @@ public sealed class AgendaService(
         return AgendaResult<PortfolioAnalyticsResponse>.Success(response);
     }
 
-    private static List<AgendaItemDto> ProcessAgendaItems(
+    public static List<AgendaItemDto> ProcessAgendaItems(
         IReadOnlyCollection<AgendaCustomerData> rawCustomers,
         DateOnly targetDate,
         decimal? originLat,
@@ -359,9 +430,11 @@ public sealed class AgendaService(
 
                 var collectedForThisLoan = c.PaymentsOnDate.Where(p => p.LoanId == loan.LoanId).Sum(p => p.Amount);
                 var nonPaymentRecord = c.NonPaymentRecords?.FirstOrDefault(r =>
-                    r.BusinessDate == targetDate && (r.LoanId == loan.LoanId || r.LoanId == null));
+                    r.BusinessDate == targetDate && (r.LoanId == loan.LoanId || (r.LoanId == null && c.ActiveLoans.Count == 1)));
 
                 var isDaily = loan.PaymentFrequency == PaymentFrequency.Daily;
+                var firstDueDate = loan.Installments.Count > 0 ? loan.Installments.Min(i => i.DueDate) : (DateOnly?)null;
+                var hasStarted = firstDueDate.HasValue && firstDueDate.Value <= targetDate;
 
                 AgendaStatus status;
                 string statusLabel;
@@ -393,9 +466,9 @@ public sealed class AgendaService(
                     statusLabel = "Cobro hoy";
                     markerColor = "#F59E0B"; // warning yellow/amber
                 }
-                else if (isDaily && loan.BalanceAmount > 0m)
+                else if (isDaily && hasStarted && loan.BalanceAmount > 0m)
                 {
-                    // Regla de matriz diaria para crédito diario activo:
+                    // Regla de matriz diaria para crédito diario activo que ya inició su calendario de cobro:
                     // "si un cliente tiene pago diario debe salir diario a menos que ya terminara el credito,
                     //  si un cliente segun el plan de pagos el dia de hoy ya sale como pago, igual debe de salir
                     //  y si no pagara se debe indicar un motivo de no pago"
@@ -412,24 +485,6 @@ public sealed class AgendaService(
                     status = AgendaStatus.UpToDate;
                     statusLabel = "Al día";
                     markerColor = "#3B82F6"; // info blue
-                }
-
-                // Motivos para aparecer en la matriz diaria de cobro:
-                // 1. Crédito diario activo (sale a diario hasta terminar el crédito).
-                // 2. Crédito semanal o mensual en su fecha correspondiente de cobro (dueTodayAmount > 0).
-                // 3. Crédito semanal o mensual en mora (overdueAmount > 0) -> continúa saliendo hasta que salga de la mora.
-                // 4. Crédito con recaudos registrados hoy (collectedForThisLoan > 0).
-                // 5. Crédito marcado con novedad de no pago hoy (nonPaymentRecord != null).
-                // Los créditos semanales/mensuales completamente al día (sin mora y cuyo cobro no es hoy) no aparecen en la matriz del día.
-                var belongsToMatrix = (isDaily && loan.BalanceAmount > 0m)
-                    || dueTodayAmount > 0m
-                    || overdueAmount > 0m
-                    || collectedForThisLoan > 0m
-                    || nonPaymentRecord != null;
-
-                if (!belongsToMatrix)
-                {
-                    continue;
                 }
 
                 items.Add(new AgendaItemDto(
@@ -509,7 +564,12 @@ public sealed class AgendaService(
         return result;
     }
 
-    private static AgendaSummaryDto BuildSummary(IReadOnlyCollection<AgendaItemDto> items, DateOnly targetDate, Guid? routeId)
+    private static AgendaSummaryDto BuildSummary(
+        IReadOnlyCollection<AgendaItemDto> items,
+        DateOnly targetDate,
+        Guid? routeId,
+        bool isBoxPastDue = false,
+        DateOnly? boxBusinessDate = null)
     {
         var totalCustomers = items.Count;
         var totalDueToday = items.Sum(i => i.DueTodayAmount);
@@ -533,7 +593,9 @@ public sealed class AgendaService(
             dueTodayCount,
             collectedCount,
             upToDateCount,
-            willNotPayCount);
+            willNotPayCount,
+            isBoxPastDue,
+            boxBusinessDate);
     }
 
     public async Task<AgendaResult<IReadOnlyCollection<NonPaymentReasonDto>>> GetNonPaymentReasonsAsync(
