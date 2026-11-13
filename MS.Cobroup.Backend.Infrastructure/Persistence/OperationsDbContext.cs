@@ -47,6 +47,10 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
         modelBuilder.Entity<Customer>(entity =>
         {
             entity.ToTable("customers");
+            entity.Ignore(customer => customer.EvidenceCount);
+            entity.HasMany(customer => customer.AdditionalEvidences).WithOne()
+                .HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Cascade);
+            entity.Navigation(customer => customer.AdditionalEvidences).UsePropertyAccessMode(PropertyAccessMode.Field);
             entity.HasKey(customer => customer.Id);
             entity.Property(customer => customer.Identification).HasMaxLength(64).IsRequired();
             entity.Property(customer => customer.EvidenceFileName).HasMaxLength(255);
@@ -71,6 +75,16 @@ public sealed class OperationsDbContext(DbContextOptions<OperationsDbContext> op
                 .OnDelete(DeleteBehavior.Cascade);
             entity.Navigation(customer => customer.Phones).UsePropertyAccessMode(PropertyAccessMode.Field);
             entity.Navigation(customer => customer.Locations).UsePropertyAccessMode(PropertyAccessMode.Field);
+        });
+
+        modelBuilder.Entity<CustomerEvidence>(entity =>
+        {
+            entity.ToTable("customer_additional_evidences", table => table.HasCheckConstraint("CK_CustomerEvidence_Slot", "\"Slot\" BETWEEN 2 AND 5"));
+            entity.HasKey(e => new { e.CustomerId, e.Slot });
+            entity.Property(e => e.FileName).HasMaxLength(255).IsRequired();
+            entity.Property(e => e.ContentType).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.StorageKey).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.FileHashSha256).HasMaxLength(64).IsRequired();
         });
 
         modelBuilder.Entity<CustomerPhone>(entity =>

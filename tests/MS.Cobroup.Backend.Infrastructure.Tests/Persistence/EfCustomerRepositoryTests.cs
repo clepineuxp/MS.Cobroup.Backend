@@ -47,6 +47,30 @@ public sealed class EfCustomerRepositoryTests
         Assert.Equal(1, result.TotalCount);
     }
 
+    [Fact]
+    public async Task Find_loads_all_five_evidences_after_saving_and_reloading()
+    {
+        await using var context = CreateContext();
+        var customer = CreateCustomer(Guid.NewGuid(), Guid.NewGuid());
+        context.Customers.Add(customer);
+        await context.SaveChangesAsync();
+        var repository = new EfCustomerRepository(context);
+        for (var i = 1; i <= 5; i++)
+        {
+            context.ChangeTracker.Clear();
+            var current = await repository.FindAsync(customer.TenantId, customer.Id, default);
+            current!.AddEvidence($"photo{i}.png", "image/png", 10, $"key{i}", new string('a', 64), Guid.NewGuid(), DateTimeOffset.UtcNow);
+            await repository.SaveChangesAsync(default);
+        }
+        context.ChangeTracker.Clear();
+        var loaded = await repository.FindAsync(customer.TenantId, customer.Id, default);
+        Assert.NotNull(loaded);
+        Assert.Equal(5, loaded.EvidenceCount);
+        Assert.Equal(4, loaded.AdditionalEvidences.Count);
+        Assert.Equal("photo1.png", loaded.EvidenceFileName);
+        Assert.Throws<InvalidOperationException>(() => loaded.AddEvidence("sixth.png", "image/png", 10, "key6", new string('a', 64), Guid.NewGuid(), DateTimeOffset.UtcNow));
+    }
+
     private static OperationsDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<OperationsDbContext>()

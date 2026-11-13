@@ -70,7 +70,8 @@ public sealed record CustomerEvidenceDetails(
     string FileName,
     string ContentType,
     long ByteSize,
-    DateTimeOffset UploadedAtUtc);
+    DateTimeOffset UploadedAtUtc,
+    int Slot = 1);
 
 public sealed record CustomerDetails(
     Guid Id,
@@ -85,7 +86,8 @@ public sealed record CustomerDetails(
     DateTimeOffset CreatedAtUtc,
     DateTimeOffset UpdatedAtUtc,
     string Identification,
-    CustomerEvidenceDetails? Evidence);
+    CustomerEvidenceDetails? Evidence,
+    IReadOnlyCollection<CustomerEvidenceDetails>? Evidences = null);
 
 public enum CustomerOutcome
 {

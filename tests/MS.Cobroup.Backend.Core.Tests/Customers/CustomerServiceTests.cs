@@ -1,3 +1,4 @@
+using MS.Cobroup.Backend.Domain.Interfaces.Services;
 using MS.Cobroup.Backend.Core.Customers;
 using MS.Cobroup.Backend.Core.Routes;
 using MS.Cobroup.Backend.Domain.Authorization;
@@ -112,9 +113,66 @@ public sealed class CustomerServiceTests
         Assert.Null(fixture.Repository.SavedCustomer);
     }
 
+    [Fact]
+    public async Task Evidence_append_preserves_legacy_and_limits_total_to_five()
+    {
+        var storage = new EvidenceStorage();
+        var fixture = new Fixture(UserRole.Collector, storage: storage);
+        var customer = fixture.CreateCustomer(fixture.RouteId);
+        fixture.Repository.Customer = customer;
+        for (var i = 1; i <= 5; i++)
+        {
+            var result = await fixture.Service.UploadEvidenceAsync(fixture.Actor, "token", customer.Id,
+                $"photo{i}.png", "image/png", new MemoryStream([1]), default, append: true);
+            Assert.Equal(CustomerOutcome.Success, result.Outcome);
+            Assert.Equal(i, result.Customer!.Evidences!.Count);
+            Assert.Equal("photo1.png", result.Customer.Evidence!.FileName);
+        }
+        var rejected = await fixture.Service.UploadEvidenceAsync(fixture.Actor, "token", customer.Id,
+            "sixth.png", "image/png", new MemoryStream([1]), default, append: true);
+        Assert.Equal(CustomerOutcome.Invalid, rejected.Outcome);
+        Assert.Equal(5, storage.StoredCount);
+        Assert.Equal(5, customer.EvidenceCount);
+        var read = await fixture.Service.GetEvidenceAsync(new(fixture.Actor, "token", customer.Id), default, 5);
+        Assert.Equal(CustomerOutcome.Success, read.Outcome);
+        Assert.Equal("photo5.png", read.FileName);
+        var missing = await fixture.Service.GetEvidenceAsync(new(fixture.Actor, "token", customer.Id), default, 6);
+        Assert.Equal(CustomerOutcome.NotFound, missing.Outcome);
+    }
+
+    [Fact]
+    public async Task Evidence_upload_and_read_reject_out_of_scope_customer()
+    {
+        var storage = new EvidenceStorage();
+        var fixture = new Fixture(UserRole.Collector, storage: storage);
+        fixture.Repository.Customer = fixture.CreateCustomer(Guid.NewGuid());
+        var customerId = fixture.Repository.Customer.Id;
+        var upload = await fixture.Service.UploadEvidenceAsync(fixture.Actor, "token", customerId,
+            "photo.png", "image/png", new MemoryStream([1]), default, append: true);
+        Assert.Equal(CustomerOutcome.Forbidden, upload.Outcome);
+        Assert.Equal(0, storage.StoredCount);
+        var read = await fixture.Service.GetEvidenceAsync(new(fixture.Actor, "token", customerId), default, 2);
+        Assert.Equal(CustomerOutcome.NotFound, read.Outcome);
+    }
+
+    private sealed class EvidenceStorage : IFileStorageService
+    {
+        public int StoredCount { get; private set; }
+        public Task<StoredFileResult> StoreEvidenceAsync(Guid tenantId, Guid paymentId, string fileName, string declaredContentType, Stream stream, CancellationToken cancellationToken)
+            => Task.FromResult(new StoredFileResult($"key{++StoredCount}", declaredContentType, 1, new string('a', 64)));
+        public Task<Stream?> ReadEvidenceAsync(Guid tenantId, string storageKey, CancellationToken cancellationToken)
+            => Task.FromResult<Stream?>(new MemoryStream([1]));
+        public Task DeleteEvidenceAsync(Guid tenantId, string storageKey, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task<StoredFileResult> PutAsync(string logicalKey, Stream stream, string declaredContentType, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<Stream?> OpenReadAsync(string logicalKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<bool> DeleteAsync(string logicalKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<bool> ExistsAsync(string logicalKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+        public Task<FileMetadataResult?> GetMetadataAsync(string logicalKey, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
     private sealed class Fixture
     {
-        public Fixture(UserRole role, bool includeSecondRoute = false)
+        public Fixture(UserRole role, bool includeSecondRoute = false, IFileStorageService? storage = null)
         {
             Actor = new CustomerActor(Guid.NewGuid(), Guid.NewGuid(), role);
             var routes = new List<AccessibleRoute>
@@ -126,7 +184,7 @@ public sealed class CustomerServiceTests
                 routes.Add(new AccessibleRoute(SecondRouteId, "Norte", null, role.ToString(), 2, null));
             }
 
-            Service = new CustomerService(Repository, new FakeRouteDirectory(RouteDirectoryResult.Success(routes)));
+            Service = new CustomerService(Repository, new FakeRouteDirectory(RouteDirectoryResult.Success(routes)), storage);
         }
 
         public Guid RouteId { get; } = Guid.NewGuid();

@@ -2,6 +2,20 @@ namespace MS.Cobroup.Backend.Domain.Customers;
 
 public sealed class Customer
 {
+    private readonly List<CustomerEvidence> additionalEvidences = [];
+    public IReadOnlyCollection<CustomerEvidence> AdditionalEvidences => additionalEvidences.AsReadOnly();
+    public int EvidenceCount => (EvidenceStorageKey is null ? 0 : 1) + additionalEvidences.Count;
+
+    public void AddEvidence(string fileName, string contentType, long byteSize, string storageKey, string hash, Guid actor, DateTimeOffset now)
+    {
+        if (EvidenceCount >= 5) throw new InvalidOperationException("Se permiten máximo 5 evidencias por cliente.");
+        if (EvidenceStorageKey is null) ReplaceEvidence(fileName, contentType, byteSize, storageKey, hash, actor, now);
+        else additionalEvidences.Add(new CustomerEvidence(Id, additionalEvidences.Count + 2,
+            Require(fileName, nameof(fileName), 255), Require(contentType, nameof(contentType), 100), byteSize,
+            Require(storageKey, nameof(storageKey), 500), Require(hash, nameof(hash), 64), actor, now));
+        UpdatedAtUtc = now;
+    }
+
     private readonly List<CustomerPhone> phones = [];
     private readonly List<CustomerLocation> locations = [];
 
@@ -113,6 +127,7 @@ public sealed class Customer
 
         EvidenceUploadedByUserId = uploadedByUserId;
         EvidenceUploadedAtUtc = uploadedAtUtc;
+        UpdatedAtUtc = uploadedAtUtc;
     }
 
     public static Customer Create(
