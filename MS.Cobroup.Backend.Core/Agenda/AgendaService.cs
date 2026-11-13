@@ -41,13 +41,13 @@ public sealed class AgendaService(
         var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
 
         DateOnly targetDate;
-        if (query.TargetDate.HasValue)
-        {
-            targetDate = query.TargetDate.Value;
-        }
-        else if (activeBoxDate.HasValue)
+        if (activeBoxDate.HasValue)
         {
             targetDate = activeBoxDate.Value;
+        }
+        else if (query.TargetDate.HasValue)
+        {
+            targetDate = query.TargetDate.Value;
         }
         else
         {
@@ -85,7 +85,21 @@ public sealed class AgendaService(
             return AgendaResult<IReadOnlyCollection<CustomerMapLocationDto>>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
         }
 
-        var targetDate = query.TargetDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly? activeBoxDate = null;
+        if (query.RouteId.HasValue)
+        {
+            activeBoxDate = await agendaRepository.GetActiveCashBoxBusinessDateAsync(
+                query.Actor.TenantId,
+                query.RouteId.Value,
+                cancellationToken);
+        }
+
+        var targetRoute = query.RouteId.HasValue ? routesResult.Routes.FirstOrDefault(r => r.Id == query.RouteId.Value) : null;
+        var timeZoneId = targetRoute?.TimeZoneId ?? "America/Bogota";
+        var businessTimeZone = RouteFinances.RouteFinanceService.ResolveBusinessTimeZone(timeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
+
+        var targetDate = activeBoxDate ?? query.TargetDate ?? localToday;
         var rawCustomers = await agendaRepository.GetAgendaCustomersAsync(
             query.Actor.TenantId,
             accessibleRouteIds,
@@ -150,7 +164,21 @@ public sealed class AgendaService(
             return AgendaResult<AgendaResponse>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
         }
 
-        var targetDate = input.TargetDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly? activeBoxDate = null;
+        if (input.RouteId.HasValue)
+        {
+            activeBoxDate = await agendaRepository.GetActiveCashBoxBusinessDateAsync(
+                command.Actor.TenantId,
+                input.RouteId.Value,
+                cancellationToken);
+        }
+
+        var targetRoute = input.RouteId.HasValue ? routesResult.Routes.FirstOrDefault(r => r.Id == input.RouteId.Value) : null;
+        var timeZoneId = targetRoute?.TimeZoneId ?? "America/Bogota";
+        var businessTimeZone = RouteFinances.RouteFinanceService.ResolveBusinessTimeZone(timeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
+
+        var targetDate = activeBoxDate ?? input.TargetDate ?? localToday;
         var rawCustomers = await agendaRepository.GetAgendaCustomersAsync(
             command.Actor.TenantId,
             accessibleRouteIds,
@@ -181,7 +209,21 @@ public sealed class AgendaService(
             return AgendaResult<PortfolioAnalyticsResponse>.Forbidden("La ruta solicitada no se encuentra dentro del alcance de operación.");
         }
 
-        var targetDate = query.TargetDate ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        DateOnly? activeBoxDate = null;
+        if (query.RouteId.HasValue)
+        {
+            activeBoxDate = await agendaRepository.GetActiveCashBoxBusinessDateAsync(
+                query.Actor.TenantId,
+                query.RouteId.Value,
+                cancellationToken);
+        }
+
+        var targetRoute = query.RouteId.HasValue ? routesResult.Routes.FirstOrDefault(r => r.Id == query.RouteId.Value) : null;
+        var timeZoneId = targetRoute?.TimeZoneId ?? "America/Bogota";
+        var businessTimeZone = RouteFinances.RouteFinanceService.ResolveBusinessTimeZone(timeZoneId);
+        var localToday = DateOnly.FromDateTime(TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, businessTimeZone).DateTime);
+
+        var targetDate = activeBoxDate ?? query.TargetDate ?? localToday;
         var routeData = await agendaRepository.GetRoutePortfolioDataAsync(
             query.Actor.TenantId,
             accessibleRouteIds,

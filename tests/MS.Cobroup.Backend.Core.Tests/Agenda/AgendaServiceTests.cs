@@ -492,6 +492,42 @@ public sealed class AgendaServiceTests
     }
 
     [Fact]
+    public async Task GetAgendaAsync_WhenActiveOpenBoxExists_InstallmentDueOnBoxDate_IsDueTodayNotOverdue_EvenIfClientSentNextDay()
+    {
+        // Arrange
+        // Active open cash box is for today (e.g. 2026-10-21)
+        agendaRepository.ActiveCashBoxDate = today;
+
+        var customerId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var installments = new List<AgendaInstallmentData>
+        {
+            new(Guid.NewGuid(), 1, today, 51429m, 0m, InstallmentStatus.Pending),
+            new(Guid.NewGuid(), 2, today.AddDays(1), 51429m, 0m, InstallmentStatus.Pending),
+        };
+        var loan = new AgendaLoanData(loanId, 102858m, 0m, 102858m, 2, installments, PaymentFrequency.Daily);
+        var customer = new AgendaCustomerData(customerId, "Jhonny Mecanico", "negocio", "3001234567", routeId, null, [loan], []);
+        agendaRepository.Customers = [customer];
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        // Even if client sent tomorrow (e.g. UTC date skew at night 11pm), the active open cash box governs
+        var query = new GetAgendaQuery(actor, "token", routeId, today.AddDays(1), null, null);
+
+        // Act
+        var result = await service.GetAgendaAsync(query, CancellationToken.None);
+
+        // Assert
+        Assert.Equal(AgendaOutcome.Success, result.Outcome);
+        var item = Assert.Single(result.Data!.Items);
+        Assert.Equal(AgendaStatus.DueToday, item.Status);
+        Assert.Equal("Cobro hoy", item.StatusLabel);
+        Assert.Equal(0m, item.OverdueAmount);
+        Assert.Equal(0, item.DaysOverdue);
+        Assert.Equal(51429m, item.DueTodayAmount);
+        Assert.Equal(today, result.Data.Summary.TargetDate);
+    }
+
+    [Fact]
     public async Task GetAgendaAsync_weekly_loan_in_mora_appears_in_daily_matrix_until_completely_uptodate()
     {
         var customerId = Guid.NewGuid();
