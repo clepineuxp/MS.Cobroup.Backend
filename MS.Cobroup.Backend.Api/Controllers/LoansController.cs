@@ -140,9 +140,9 @@ public sealed class LoansController(LoanService service) : ControllerBase
             return BadRequest(new { message = "El monto principal debe ser positivo." });
         }
 
-        if (request.InterestRate <= 0)
+        if (request.InterestRate < 0)
         {
-            return BadRequest(new { message = "La tasa de interés debe ser positiva." });
+            return BadRequest(new { message = "La tasa de interés no puede ser negativa." });
         }
 
         if (request.InstallmentCount <= 0)

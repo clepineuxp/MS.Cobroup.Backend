@@ -74,6 +74,51 @@ public sealed class LoanServiceTests
         Assert.Equal(920m, result.Loan.Installments.Sum(i => i.ExpectedAmount));
     }
 
+    [Theory]
+    [InlineData(4)]
+    [InlineData(3)]
+    public async Task OriginateAsync_zero_interest_template_divides_only_principal(int count)
+    {
+        var tenantId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var collectorId = Guid.NewGuid();
+        var templateId = Guid.NewGuid();
+
+        routeDirectory.Routes = [new(routeId, "Ruta Centro", null, "Cobrador 1", 10, 10)];
+        templateDirectory.Templates = [new(templateId, "Plantilla 20D", "Desc", "Standard", "Published", 1, 20, 1000m, [0m], DateTimeOffset.UtcNow, RouteIds: [routeId])];
+
+        var customer = CreateCustomer(tenantId, routeId);
+        customerRepository.Add(customer);
+
+        var actor = new CustomerActor(collectorId, tenantId, UserRole.Collector);
+        var input = new OriginateLoanInput(
+            customer.Id,
+            800m,
+            0m,
+            PaymentFrequency.Daily,
+            null,
+            count,
+            templateId,
+            1,
+            null,
+            new DateOnly(2026, 11, 1));
+
+        var result = await service.OriginateAsync(
+            new OriginateLoanCommand(actor, "token", input),
+            CancellationToken.None);
+
+        Assert.Equal(LoanOutcome.Created, result.Outcome);
+        Assert.NotNull(result.Loan);
+        Assert.Equal(customer.Id, result.Loan.CustomerId);
+        Assert.Equal(800m, result.Loan.PrincipalAmount);
+        Assert.Equal(0m, result.Loan.InterestRate);
+        Assert.Equal(0m, result.Loan.InterestAmount);
+        Assert.Equal(800m, result.Loan.TotalAmount);
+        Assert.Equal(count, result.Loan.Installments.Count);
+        Assert.All(result.Loan.Installments, i => Assert.True(i.ExpectedAmount > 0m));
+        Assert.Equal(800m, result.Loan.Installments.Sum(i => i.ExpectedAmount));
+    }
+
     [Fact]
     public async Task OriginateAsync_with_microinsurance_creates_linked_microinsurance_entry()
     {
