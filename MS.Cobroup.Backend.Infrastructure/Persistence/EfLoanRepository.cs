@@ -188,6 +188,25 @@ public sealed class EfLoanRepository(OperationsDbContext dbContext) : ILoanRepos
         return new LoanSearchPage(items, page, pageSize, totalCount);
     }
 
-    public Task SaveChangesAsync(CancellationToken cancellationToken) =>
-        dbContext.SaveChangesAsync(cancellationToken);
+    public async Task SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        var deletedInstallmentLoanIds = dbContext.ChangeTracker
+            .Entries<Installment>()
+            .Where(e => e.State == EntityState.Deleted)
+            .Select(e => e.Entity.LoanId)
+            .ToHashSet();
+
+        if (deletedInstallmentLoanIds.Count > 0)
+        {
+            foreach (var entry in dbContext.ChangeTracker.Entries<Installment>())
+            {
+                if (entry.State == EntityState.Modified && deletedInstallmentLoanIds.Contains(entry.Entity.LoanId))
+                {
+                    entry.State = EntityState.Added;
+                }
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

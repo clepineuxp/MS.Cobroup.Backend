@@ -125,8 +125,18 @@ public sealed class EfPaymentRepository(OperationsDbContext dbContext) : IPaymen
         }
     }
 
-    public Task SaveChangesAsync(CancellationToken cancellationToken) =>
-        dbContext.SaveChangesAsync(cancellationToken);
+    public async Task SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        foreach (var entry in dbContext.ChangeTracker.Entries<PaymentAllocation>())
+        {
+            if (entry.State == EntityState.Modified)
+            {
+                entry.State = EntityState.Added;
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 
     public Task<PaymentEvidence?> FindEvidenceAsync(
         Guid tenantId,

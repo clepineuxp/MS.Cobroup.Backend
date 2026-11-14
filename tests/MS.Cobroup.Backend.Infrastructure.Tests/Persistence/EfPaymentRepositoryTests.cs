@@ -193,6 +193,57 @@ public sealed class EfPaymentRepositoryTests
         Assert.Equal("Duplicate photo uploaded", updated.DeletionReason);
     }
 
+    [Fact]
+    public async Task Update_payment_replaces_allocations_without_concurrency_exception()
+    {
+        await using var context = CreateContext();
+        var tenantId = Guid.NewGuid();
+        var loanId = Guid.NewGuid();
+        var customerId = Guid.NewGuid();
+        var routeId = Guid.NewGuid();
+        var collectorId = Guid.NewGuid();
+        var paymentMethodId = Guid.NewGuid();
+        var installmentId = Guid.NewGuid();
+        var now = DateTimeOffset.UtcNow;
+
+        var payment = Payment.Register(
+            tenantId,
+            loanId,
+            customerId,
+            routeId,
+            collectorId,
+            50000m,
+            paymentMethodId,
+            "Efectivo",
+            "Cobro inicial",
+            Guid.NewGuid().ToString(),
+            now,
+            [new(Guid.NewGuid(), Guid.NewGuid(), installmentId, 1, 50000m, false)]);
+
+        var repository = new EfPaymentRepository(context);
+        await repository.AddAsync(payment, default);
+        await repository.SaveChangesAsync(default);
+        context.ChangeTracker.Clear();
+
+        var trackedPayment = await repository.FindAsync(tenantId, payment.Id, default);
+        Assert.NotNull(trackedPayment);
+
+        var newAllocations = new List<PaymentAllocation>
+        {
+            new(Guid.NewGuid(), trackedPayment.Id, installmentId, 1, 55000m, true)
+        };
+        trackedPayment.Update(55000m, paymentMethodId, "Efectivo", "Ajuste de cobro", newAllocations);
+
+        await repository.SaveChangesAsync(default);
+        context.ChangeTracker.Clear();
+
+        var reloaded = await repository.FindAsync(tenantId, payment.Id, default);
+        Assert.NotNull(reloaded);
+        Assert.Equal(55000m, reloaded.Amount);
+        var singleAlloc = Assert.Single(reloaded.Allocations);
+        Assert.Equal(55000m, singleAlloc.AmountAllocated);
+    }
+
     private static OperationsDbContext CreateContext()
     {
         var options = new DbContextOptionsBuilder<OperationsDbContext>()
