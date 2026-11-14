@@ -162,6 +162,15 @@ public sealed record CreateNonPaymentReasonCommand(
     CustomerActor Actor,
     CreateNonPaymentReasonInput Input);
 
+public sealed record UpdateNonPaymentReasonCommand(
+    CustomerActor Actor,
+    Guid ReasonId,
+    UpdateNonPaymentReasonInput Input);
+
+public sealed record DeleteNonPaymentReasonCommand(
+    CustomerActor Actor,
+    Guid ReasonId);
+
 public sealed record ToggleReasonStatusInput(bool IsActive);
 
 public sealed record ToggleNonPaymentReasonStatusCommand(

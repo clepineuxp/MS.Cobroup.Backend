@@ -313,6 +313,7 @@ public sealed class RouteFinanceServiceTests
         public Task<NonPaymentReason?> GetNonPaymentReasonByIdAsync(Guid tenantId, Guid reasonId, CancellationToken cancellationToken) =>
             Task.FromResult<NonPaymentReason?>(null);
         public Task SaveNonPaymentReasonAsync(NonPaymentReason reason, CancellationToken cancellationToken) => Task.CompletedTask;
+        public Task DeleteNonPaymentReasonAsync(Guid tenantId, Guid reasonId, CancellationToken cancellationToken) => Task.CompletedTask;
         public Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(Guid tenantId, IReadOnlyCollection<Guid> accessibleRouteIds, Guid? routeId, DateOnly businessDate, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyCollection<CustomerNonPaymentRecord>>([]);
         public Task SaveNonPaymentRecordAsync(CustomerNonPaymentRecord record, CancellationToken cancellationToken) => Task.CompletedTask;

@@ -631,6 +631,50 @@ public sealed class AgendaService(
         return AgendaResult<NonPaymentReasonDto>.Success(dto);
     }
 
+    public async Task<AgendaResult<NonPaymentReasonDto>> UpdateNonPaymentReasonAsync(
+        UpdateNonPaymentReasonCommand command,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(command.Input.Name))
+        {
+            return AgendaResult<NonPaymentReasonDto>.Invalid("El nombre del motivo es requerido.");
+        }
+
+        var reason = await agendaRepository.GetNonPaymentReasonByIdAsync(command.Actor.TenantId, command.ReasonId, cancellationToken);
+        if (reason is null)
+        {
+            return AgendaResult<NonPaymentReasonDto>.Invalid("El motivo de no pago no existe.");
+        }
+
+        reason.Update(command.Input.Name, command.Input.Description, command.Input.DisplayOrder);
+        if (command.Input.IsActive)
+        {
+            reason.Activate();
+        }
+        else
+        {
+            reason.Deactivate();
+        }
+
+        await agendaRepository.SaveNonPaymentReasonAsync(reason, cancellationToken);
+        var dto = new NonPaymentReasonDto(reason.Id, reason.Name, reason.Description, reason.IsActive, reason.DisplayOrder);
+        return AgendaResult<NonPaymentReasonDto>.Success(dto);
+    }
+
+    public async Task<AgendaResult<bool>> DeleteNonPaymentReasonAsync(
+        DeleteNonPaymentReasonCommand command,
+        CancellationToken cancellationToken)
+    {
+        var reason = await agendaRepository.GetNonPaymentReasonByIdAsync(command.Actor.TenantId, command.ReasonId, cancellationToken);
+        if (reason is null)
+        {
+            return AgendaResult<bool>.Invalid("El motivo de no pago no existe.");
+        }
+
+        await agendaRepository.DeleteNonPaymentReasonAsync(command.Actor.TenantId, command.ReasonId, cancellationToken);
+        return AgendaResult<bool>.Success(true);
+    }
+
     public async Task<AgendaResult<NonPaymentReasonDto>> ToggleNonPaymentReasonStatusAsync(
         ToggleNonPaymentReasonStatusCommand command,
         CancellationToken cancellationToken)

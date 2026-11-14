@@ -447,7 +447,7 @@ public sealed class PaymentServiceTests
         public Task<IReadOnlyCollection<Loan>> ListByCustomerAsync(Guid tenantId, Guid customerId, CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyCollection<Loan>>(loans.Where(l => l.TenantId == tenantId && l.CustomerId == customerId).ToList());
 
-        public Task<LoanSearchPage> SearchAsync(Guid tenantId, IReadOnlyCollection<Guid> accessibleRouteIds, Guid? routeId, Guid? customerId, LoanStatus? status, int page, int pageSize, CancellationToken cancellationToken) =>
+        public Task<LoanSearchPage> SearchAsync(Guid tenantId, IReadOnlyCollection<Guid> accessibleRouteIds, Guid? routeId, Guid? customerId, LoanStatus? status, int page, int pageSize, CancellationToken cancellationToken, string? search = null) =>
             Task.FromResult(new LoanSearchPage([], page, pageSize, 0));
 
         public Task SaveChangesAsync(CancellationToken cancellationToken) => Task.CompletedTask;

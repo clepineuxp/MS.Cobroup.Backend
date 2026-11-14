@@ -647,7 +647,8 @@ public sealed class LoanService(
             query.Status,
             query.Page,
             query.PageSize,
-            cancellationToken);
+            cancellationToken,
+            query.Search);
 
         return LoanSearchResult.Success(page);
     }

@@ -456,3 +456,10 @@
 ### 2026-11-13 — Commits autorizados de evidencias y ajustes operativos
 
 - Solicitud expresa: hacer commits de los cambios pendientes. Incluye hasta cinco evidencias por cliente con migración y pruebas; frontend incluye nombre de comprobante desde businessOrWorkName y separación de acciones de cobro con botón verde. Se conservan las verificaciones anteriores; migración generada sin aplicar. Sin push ni despliegue.
+
+### 2026-11-13 — Aplicación autorizada de migración de evidencias múltiples
+
+- Solicitud expresa: APLICAR MIGRACIONES. Configuración de desarrollo resuelta sin exponer credenciales; destino verificado dev_cobroup_operations.
+- Inspección previa: única migración pendiente 20261113061250_AddCustomerAdditionalEvidences. Aplicada mediante dotnet ef database update con destino explícito, configuración Release y bloqueo exclusivo.
+- Verificación posterior: 15 migraciones aplicadas, cero pendientes; modelo EF sin cambios pendientes. Migración aditiva, conserva evidencia legada y datos de clientes. Sin cambios en QA/Prod ni despliegue o reinicio de API.
+- Registro local sin commit nuevo; sin push.

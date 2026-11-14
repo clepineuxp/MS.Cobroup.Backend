@@ -347,6 +347,21 @@ public sealed class EfAgendaRepository(OperationsDbContext dbContext) : IAgendaR
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task DeleteNonPaymentReasonAsync(
+        Guid tenantId,
+        Guid reasonId,
+        CancellationToken cancellationToken)
+    {
+        var existing = await dbContext.NonPaymentReasons
+            .FirstOrDefaultAsync(r => r.TenantId == tenantId && r.Id == reasonId, cancellationToken);
+
+        if (existing is not null)
+        {
+            dbContext.NonPaymentReasons.Remove(existing);
+            await dbContext.SaveChangesAsync(cancellationToken);
+        }
+    }
+
     public async Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(
         Guid tenantId,
         IReadOnlyCollection<Guid> accessibleRouteIds,
