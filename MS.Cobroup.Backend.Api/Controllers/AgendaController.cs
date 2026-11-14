@@ -129,6 +129,37 @@ public sealed class AgendaController(AgendaService service) : ControllerBase
         return MapResult(result);
     }
 
+    [HttpPut("non-payment-reasons/{id:guid}")]
+    public async Task<IActionResult> UpdateNonPaymentReason(
+        [FromRoute] Guid id,
+        [FromBody] UpdateNonPaymentReasonInput input,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var command = new UpdateNonPaymentReasonCommand(actor, id, input);
+        var result = await service.UpdateNonPaymentReasonAsync(command, cancellationToken);
+        return MapResult(result);
+    }
+
+    [HttpDelete("non-payment-reasons/{id:guid}")]
+    public async Task<IActionResult> DeleteNonPaymentReason(
+        [FromRoute] Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (!CustomerActorReader.TryRead(User, out var actor))
+        {
+            return Unauthorized();
+        }
+
+        var command = new DeleteNonPaymentReasonCommand(actor, id);
+        var result = await service.DeleteNonPaymentReasonAsync(command, cancellationToken);
+        return MapResult(result);
+    }
+
     [HttpPost("will-not-pay")]
     public async Task<IActionResult> RegisterWillNotPay(
         [FromBody] RegisterWillNotPayInput input,

@@ -627,6 +627,15 @@ internal sealed class InMemoryAgendaRepository : IAgendaRepository
         return Task.CompletedTask;
     }
 
+    public Task DeleteNonPaymentReasonAsync(
+        Guid tenantId,
+        Guid reasonId,
+        CancellationToken cancellationToken)
+    {
+        NonPaymentReasons.RemoveAll(r => r.TenantId == tenantId && r.Id == reasonId);
+        return Task.CompletedTask;
+    }
+
     public Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(
         Guid tenantId,
         IReadOnlyCollection<Guid> accessibleRouteIds,

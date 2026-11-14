@@ -36,7 +36,8 @@ public interface ILoanRepository
         LoanStatus? status,
         int page,
         int pageSize,
-        CancellationToken cancellationToken);
+        CancellationToken cancellationToken,
+        string? search = null);
 
     Task SaveChangesAsync(CancellationToken cancellationToken);
 }

@@ -112,7 +112,8 @@ public sealed class EfLoanRepository(OperationsDbContext dbContext) : ILoanRepos
         LoanStatus? status,
         int page,
         int pageSize,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        string? search = null)
     {
         if (accessibleRouteIds.Count is 0)
         {
@@ -135,6 +136,24 @@ public sealed class EfLoanRepository(OperationsDbContext dbContext) : ILoanRepos
         if (status.HasValue)
         {
             query = query.Where(l => l.Status == status.Value);
+        }
+
+        var normalizedSearch = search?.Trim();
+        if (!string.IsNullOrEmpty(normalizedSearch))
+        {
+            var pattern = $"%{normalizedSearch}%";
+            var matchingCustomerIds = await dbContext.Customers.AsNoTracking()
+                .Where(c => c.TenantId == tenantId && (
+                    EF.Functions.ILike(c.FirstNames, pattern) ||
+                    EF.Functions.ILike(c.LastNames, pattern) ||
+                    EF.Functions.ILike(c.Identification, pattern)))
+                .Select(c => c.Id)
+                .ToListAsync(cancellationToken);
+
+            var isGuid = Guid.TryParse(normalizedSearch, out var searchGuid);
+
+            query = query.Where(l => matchingCustomerIds.Contains(l.CustomerId) ||
+                                     (isGuid && l.Id == searchGuid));
         }
 
         var totalCount = await query.CountAsync(cancellationToken);
@@ -169,6 +188,25 @@ public sealed class EfLoanRepository(OperationsDbContext dbContext) : ILoanRepos
         return new LoanSearchPage(items, page, pageSize, totalCount);
     }
 
-    public Task SaveChangesAsync(CancellationToken cancellationToken) =>
-        dbContext.SaveChangesAsync(cancellationToken);
+    public async Task SaveChangesAsync(CancellationToken cancellationToken)
+    {
+        var deletedInstallmentLoanIds = dbContext.ChangeTracker
+            .Entries<Installment>()
+            .Where(e => e.State == EntityState.Deleted)
+            .Select(e => e.Entity.LoanId)
+            .ToHashSet();
+
+        if (deletedInstallmentLoanIds.Count > 0)
+        {
+            foreach (var entry in dbContext.ChangeTracker.Entries<Installment>())
+            {
+                if (entry.State == EntityState.Modified && deletedInstallmentLoanIds.Contains(entry.Entity.LoanId))
+                {
+                    entry.State = EntityState.Added;
+                }
+            }
+        }
+
+        await dbContext.SaveChangesAsync(cancellationToken);
+    }
 }

@@ -57,6 +57,7 @@ public sealed class LoansController(LoanService service) : ControllerBase
         [FromQuery] Guid? routeId,
         [FromQuery] Guid? customerId,
         [FromQuery] LoanStatus? status,
+        [FromQuery] string? search,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = 25,
         CancellationToken cancellationToken = default)
@@ -74,7 +75,8 @@ public sealed class LoansController(LoanService service) : ControllerBase
                 customerId,
                 status,
                 page,
-                pageSize),
+                pageSize,
+                search),
             cancellationToken);
 
         return result.Outcome switch

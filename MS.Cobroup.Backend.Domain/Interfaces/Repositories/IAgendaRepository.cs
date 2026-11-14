@@ -33,6 +33,11 @@ public interface IAgendaRepository
         NonPaymentReason reason,
         CancellationToken cancellationToken);
 
+    Task DeleteNonPaymentReasonAsync(
+        Guid tenantId,
+        Guid reasonId,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyCollection<CustomerNonPaymentRecord>> GetNonPaymentRecordsAsync(
         Guid tenantId,
         IReadOnlyCollection<Guid> accessibleRouteIds,

@@ -645,7 +645,8 @@ public sealed class LoanServiceTests
             LoanStatus? status,
             int page,
             int pageSize,
-            CancellationToken cancellationToken)
+            CancellationToken cancellationToken,
+            string? search = null)
         {
             var query = loans.Where(l => l.TenantId == tenantId && accessibleRouteIds.Contains(l.RouteId));
             if (routeId.HasValue) query = query.Where(l => l.RouteId == routeId.Value);

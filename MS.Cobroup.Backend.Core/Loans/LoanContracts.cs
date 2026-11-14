@@ -71,7 +71,8 @@ public sealed record SearchLoansQuery(
     Guid? CustomerId,
     LoanStatus? Status,
     int Page,
-    int PageSize);
+    int PageSize,
+    string? Search = null);
 
 public enum LoanOutcome
 {
